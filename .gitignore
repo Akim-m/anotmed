@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Runtime data and local config
+anotmed_data/
+.env
+
+# Local Claude Code / agent session state (not project source)
+.remember/
+.claude/settings.local.json
+
+# Sample / scratch DICOMs
+*.dcm
+
+# Model weights
+*.pt
+*.pth
+*.safetensors

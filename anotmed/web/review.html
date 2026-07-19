@@ -1,0 +1,226 @@
+<meta charset="utf-8" />
+<title>anotmed — annotation review</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: #0f1115; color: #e6e8ec; }
+  header { padding: 10px 16px; background: #161a22; border-bottom: 1px solid #262c38;
+           display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #223; color: #9db4ff; }
+  .warn { font-size: 12px; color: #ffcf6b; margin-left: auto; }
+  main { display: flex; gap: 16px; padding: 16px; align-items: flex-start; }
+  #viewer { position: relative; width: min(60vw, 640px); background: #000; border: 1px solid #262c38; border-radius: 8px; overflow: hidden; }
+  #viewer img.base { display: block; width: 100%; image-rendering: pixelated; }
+  #viewer img.mask, #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #overlay { pointer-events: auto; }
+  #overlay rect.box { fill: transparent; stroke: #ffd23f; stroke-width: 2; vector-effect: non-scaling-stroke; }
+  #overlay rect.box.sel { stroke: #ff5d5d; }
+  aside { flex: 1; min-width: 320px; }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  button { background: #2a3140; color: #e6e8ec; border: 1px solid #3a4256;
+           border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
+  button:hover { background: #333c4e; }
+  button.primary { background: #2f6f4f; border-color: #3c8a63; }
+  button.danger { background: #6f2f36; border-color: #8a3c45; }
+  input[type=text] { background: #10141c; border: 1px solid #2b3342; color: #e6e8ec; border-radius: 6px; padding: 5px 8px; }
+  .card { border: 1px solid #262c38; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: #12161e; }
+  .card.sel { border-color: #ff5d5d; }
+  .card h3 { margin: 0 0 6px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .pill { font-size: 11px; padding: 1px 7px; border-radius: 999px; }
+  .pill.pending { background: #3a3320; color: #ffd68a; }
+  .pill.accepted { background: #1f3a2a; color: #8fe6b0; }
+  .pill.rejected { background: #3a2020; color: #f0a0a0; }
+  .meas { font-size: 12px; color: #b8c0cc; margin: 4px 0; }
+  .report { font-size: 12px; color: #93a0b2; white-space: pre-wrap; margin: 6px 0; }
+  .muted { color: #6b7686; font-size: 12px; }
+</style>
+
+<header>
+  <h1>anotmed</h1>
+  <span class="badge" id="backend">backend: …</span>
+  <span class="warn">⚠ Not a diagnostic device. Every suggestion requires radiologist verification.</span>
+</header>
+
+<main>
+  <div>
+    <div class="row">
+      <input type="file" id="file" accept=".dcm,application/dicom" />
+      <button class="primary" onclick="upload()">Analyze DICOM</button>
+      <select id="studies" onchange="selectStudy(this.value)"></select>
+    </div>
+    <div id="viewer">
+      <img class="base" id="base" alt="" />
+      <img class="mask" id="mask" alt="" />
+      <svg id="overlay" viewBox="0 0 1 1" preserveAspectRatio="none"></svg>
+    </div>
+    <p class="muted" id="drawhint" style="display:none">Drag on the image to draw a corrected box, then release.</p>
+  </div>
+
+  <aside>
+    <div class="row">
+      <strong id="studyname">No study loaded</strong>
+      <button onclick="exportCoco()" style="margin-left:auto">Export accepted (COCO)</button>
+    </div>
+    <div id="list"></div>
+  </aside>
+</main>
+
+<script>
+let STATE = { sid: null, meta: null, anns: [], selected: null, drawing: null };
+
+async function j(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+}
+
+async function boot() {
+  const h = await j('/api/healthz');
+  document.getElementById('backend').textContent = 'backend: ' + h.backend;
+  await refreshStudies();
+}
+
+async function refreshStudies() {
+  const studies = await j('/api/studies');
+  const sel = document.getElementById('studies');
+  sel.innerHTML = '<option value="">— studies —</option>' +
+    studies.map(s => `<option value="${s.id}">${s.source_name} (${s.id})</option>`).join('');
+}
+
+async function upload() {
+  const f = document.getElementById('file').files[0];
+  if (!f) { alert('Choose a DICOM file first.'); return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  const res = await j('/api/studies', { method: 'POST', body: fd });
+  await refreshStudies();
+  document.getElementById('studies').value = res.study.id;
+  loadStudyData(res.study, res.annotations);
+}
+
+async function selectStudy(sid) {
+  if (!sid) return;
+  const study = await j('/api/studies/' + sid);
+  const anns = await j('/api/studies/' + sid + '/annotations');
+  loadStudyData(study, anns);
+}
+
+function loadStudyData(study, anns) {
+  STATE.sid = study.id;
+  STATE.meta = study.meta;
+  STATE.anns = anns;
+  STATE.selected = null;
+  document.getElementById('studyname').textContent =
+    `${study.source_name} · ${study.meta.modality} · ${study.meta.cols}×${study.meta.rows}` +
+    (study.meta.spacing_is_default ? ' · ⚠ spacing missing (mm approximate)' : '');
+  const base = document.getElementById('base');
+  base.src = `/api/studies/${study.id}/image.png?t=${Date.now()}`;
+  const ov = document.getElementById('overlay');
+  ov.setAttribute('viewBox', `0 0 ${study.meta.cols} ${study.meta.rows}`);
+  document.getElementById('mask').src = '';
+  render();
+}
+
+function render() {
+  const ov = document.getElementById('overlay');
+  ov.innerHTML = STATE.anns.filter(a => a.status !== 'rejected').map(a => {
+    const b = a.box, cls = a.id === STATE.selected ? 'box sel' : 'box';
+    return `<rect class="${cls}" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}"
+            onclick="selectAnn('${a.id}')"></rect>`;
+  }).join('');
+
+  document.getElementById('list').innerHTML = STATE.anns.map(a => {
+    const m = a.measurement || {};
+    const sel = a.id === STATE.selected ? ' sel' : '';
+    return `<div class="card${sel}" id="card-${a.id}">
+      <h3><input type="text" value="${a.label.replace(/"/g,'&quot;')}"
+           onchange="setLabel('${a.id}', this.value)" style="flex:1" />
+           <span class="pill ${a.status}">${a.status}${a.edited ? ' · edited' : ''}</span></h3>
+      <div class="meas">max Ø ${fmt(m.max_diameter_mm)} mm · perp ${fmt(m.perpendicular_diameter_mm)} mm
+           · area ${fmt(m.area_cm2)} cm² · ${m.n_pixels ?? 0} px</div>
+      <div class="report">${(a.report_text||'').replace(/</g,'&lt;')}</div>
+      <div class="row">
+        <button class="primary" onclick="review('${a.id}','accept')">Accept</button>
+        <button class="danger" onclick="review('${a.id}','reject')">Reject</button>
+        <button onclick="startDraw('${a.id}')">Redraw box</button>
+      </div>
+      <div class="row">
+        <input type="text" placeholder="reviewer note" value="${(a.reviewer_note||'').replace(/"/g,'&quot;')}"
+               onchange="setNote('${a.id}', this.value)" style="flex:1" />
+      </div>
+      <div class="muted">${prov(a)}</div>
+    </div>`;
+  }).join('') || '<p class="muted">No suggestions. Upload a DICOM to analyze.</p>';
+}
+
+const fmt = v => (v == null ? '—' : Number(v).toFixed(1));
+const prov = a => `${a.provenance.localizer} → ${a.provenance.segmenter}`;
+
+function selectAnn(id) {
+  STATE.selected = id;
+  const a = STATE.anns.find(x => x.id === id);
+  const mask = document.getElementById('mask');
+  mask.src = a && a.mask_path ? `/api/studies/${STATE.sid}/annotations/${id}/mask.png?t=${Date.now()}` : '';
+  render();
+  const card = document.getElementById('card-' + id);
+  if (card) card.scrollIntoView({ block: 'nearest' });
+}
+
+async function setLabel(id, v) { await post(id, { label: v }); }
+async function setNote(id, v) { await post(id, { note: v }); }
+async function review(id, action) { await post(id, { action }); }
+
+async function post(id, body) {
+  const updated = await j(`/api/studies/${STATE.sid}/annotations/${id}/review`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const i = STATE.anns.findIndex(a => a.id === id);
+  if (i >= 0) STATE.anns[i] = updated;
+  render();
+  if (STATE.selected === id) selectAnn(id);
+}
+
+// --- draw-to-correct a box -------------------------------------------------
+function startDraw(id) {
+  STATE.selected = id;
+  STATE.drawing = { id, start: null };
+  document.getElementById('drawhint').style.display = 'block';
+}
+function svgPoint(e) {
+  const ov = document.getElementById('overlay');
+  const r = ov.getBoundingClientRect();
+  return {
+    x: (e.clientX - r.left) / r.width * STATE.meta.cols,
+    y: (e.clientY - r.top) / r.height * STATE.meta.rows,
+  };
+}
+document.getElementById('overlay').addEventListener('mousedown', e => {
+  if (!STATE.drawing) return;
+  STATE.drawing.start = svgPoint(e);
+});
+document.getElementById('overlay').addEventListener('mouseup', async e => {
+  if (!STATE.drawing || !STATE.drawing.start) return;
+  const s = STATE.drawing.start, p = svgPoint(e);
+  const box = { x: Math.min(s.x, p.x), y: Math.min(s.y, p.y),
+                w: Math.abs(p.x - s.x), h: Math.abs(p.y - s.y) };
+  const id = STATE.drawing.id;
+  STATE.drawing = null;
+  document.getElementById('drawhint').style.display = 'none';
+  if (box.w < 2 || box.h < 2) return;
+  await post(id, { action: 'edit', box });
+  selectAnn(id);
+});
+
+async function exportCoco() {
+  if (!STATE.sid) return;
+  const r = await fetch(`/api/studies/${STATE.sid}/export?format=coco`, { method: 'POST' });
+  if (!r.ok) { alert((await r.json()).detail || 'export failed'); return; }
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${STATE.sid}_coco.json`;
+  a.click();
+}
+
+boot();
+</script>
