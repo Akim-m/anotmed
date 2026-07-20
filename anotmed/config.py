@@ -13,6 +13,14 @@ from pathlib import Path
 
 BACKEND_STUB = "stub"
 BACKEND_MODELS = "medgemma+medsam"
+BACKEND_VLLM = "vllm"
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.strip().lower() not in ("0", "false", "no", "off", "")
 
 
 @dataclass(frozen=True)
@@ -28,6 +36,13 @@ class Config:
         default_factory=lambda: os.getenv("ANOTMED_MEDGEMMA_MODEL", "google/medgemma-4b-it"))
     sam_checkpoint: str = field(default_factory=lambda: os.getenv("ANOTMED_SAM_CHECKPOINT", ""))
     sam_config: str = field(default_factory=lambda: os.getenv("ANOTMED_SAM_CONFIG", ""))
+
+    # vLLM MedGemma backend (thin httpx client to a separate vLLM OpenAI server).
+    vllm_url: str = field(
+        default_factory=lambda: os.getenv("ANOTMED_VLLM_URL", "http://127.0.0.1:8000/v1"))
+    vllm_timeout_s: float = field(
+        default_factory=lambda: float(os.getenv("ANOTMED_VLLM_TIMEOUT_S", "120")))
+    guided_json: bool = field(default_factory=lambda: _env_bool("ANOTMED_GUIDED_JSON", True))
 
     # Suggestion limits.
     max_findings: int = field(default_factory=lambda: int(os.getenv("ANOTMED_MAX_FINDINGS", "8")))

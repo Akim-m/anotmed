@@ -56,6 +56,18 @@ def _coord(value: float) -> float:
     return max(0.0, min(_COORD_MAX, float(value)))
 
 
+def to_pixel_bbox(ymin, xmin, ymax, xmax, rows: int, cols: int) -> BBox:
+    """Scale a Gemma-family normalized box (0-1000) to a clamped, in-image BBox.
+
+    Shared by the free-text fallback parser and the vLLM guided-JSON path so the
+    two can never disagree on how a box maps to pixels.
+    """
+    ymin, xmin, ymax, xmax = (_coord(v) for v in (ymin, xmin, ymax, xmax))
+    y0, y1 = sorted((ymin / _COORD_MAX * rows, ymax / _COORD_MAX * rows))
+    x0, x1 = sorted((xmin / _COORD_MAX * cols, xmax / _COORD_MAX * cols))
+    return BBox(x=x0, y=y0, w=max(1.0, x1 - x0), h=max(1.0, y1 - y0)).clamp(cols, rows)
+
+
 def parse_detections(
     text: str, rows: int, cols: int, default_score: float = 1.0
 ) -> list[Detection]:
@@ -74,12 +86,9 @@ def parse_detections(
         if not (isinstance(box, (list, tuple)) and len(box) == 4):
             continue
         try:
-            ymin, xmin, ymax, xmax = (_coord(v) for v in box)
+            bbox = to_pixel_bbox(*box, rows=rows, cols=cols)
         except (TypeError, ValueError):
             continue  # a non-numeric coordinate drops just this box
-        y0, y1 = sorted((ymin / _COORD_MAX * rows, ymax / _COORD_MAX * rows))
-        x0, x1 = sorted((xmin / _COORD_MAX * cols, xmax / _COORD_MAX * cols))
-        bbox = BBox(x=x0, y=y0, w=max(1.0, x1 - x0), h=max(1.0, y1 - y0)).clamp(cols, rows)
         try:
             score = float(item.get("score", default_score))
         except (TypeError, ValueError):
