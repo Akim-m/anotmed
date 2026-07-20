@@ -86,27 +86,21 @@ def _p10(xs: list[float]) -> float:
     return float(np.percentile(xs, 10)) if xs else 0.0
 
 
-def evaluate(backend, cases: list[Case], iou_low: float = 0.3, iou_high: float = 0.5) -> Report:
+def segmentation_metrics(segmenter, cases: list[Case]) -> dict:
+    """GT-box-prompted segmentation quality — uses ONLY the segmenter (SAM2).
+
+    Runs independently of the localizer, so the primary Dice/IoU floor can be
+    measured without MedGemma resident (memory-safe on a tight GPU)."""
     dices: list[float] = []
     ious: list[float] = []
     fmt_flags: list[bool] = []
-    recall30: list[float] = []
-    recall50: list[float] = []
-    prec30: list[float] = []
     n_lesions = 0
-
     for case in cases:
         rows, cols = case.image.shape
-        pred_boxes = [d.box for d in backend.localizer.propose(case.image, case.meta)]
-        recall30.append(localization_scores(pred_boxes, case.gt_boxes, iou_low)["recall"])
-        s = localization_scores(pred_boxes, case.gt_boxes, iou_low)
-        prec30.append(s["precision"])
-        recall50.append(localization_scores(pred_boxes, case.gt_boxes, iou_high)["recall"])
-
         for gt_box, gt_mask in zip(case.gt_boxes, case.gt_masks):
             n_lesions += 1
             try:
-                mask = backend.segmenter.segment(case.image, gt_box, case.meta)
+                mask = segmenter.segment(case.image, gt_box, case.meta)
             except Exception:
                 fmt_flags.append(False)  # a crash is a format-compliance failure
                 continue
@@ -115,17 +109,47 @@ def evaluate(backend, cases: list[Case], iou_low: float = 0.3, iou_high: float =
             if ok:
                 dices.append(dice(mask, gt_mask))
                 ious.append(iou(mask, gt_mask))
+    return {
+        "n_lesions": n_lesions,
+        "dice_mean": _mean(dices),
+        "dice_p10": _p10(dices),
+        "iou_mean": _mean(ious),
+        "format_compliance": _mean([float(f) for f in fmt_flags]) if fmt_flags else 1.0,
+    }
 
+
+def localization_metrics(localizer, cases: list[Case],
+                         iou_low: float = 0.3, iou_high: float = 0.5) -> dict:
+    """Localization recall/precision — uses ONLY the localizer (MedGemma)."""
+    recall30: list[float] = []
+    recall50: list[float] = []
+    prec30: list[float] = []
+    for case in cases:
+        pred_boxes = [d.box for d in localizer.propose(case.image, case.meta)]
+        s_low = localization_scores(pred_boxes, case.gt_boxes, iou_low)
+        recall30.append(s_low["recall"])
+        prec30.append(s_low["precision"])
+        recall50.append(localization_scores(pred_boxes, case.gt_boxes, iou_high)["recall"])
+    return {
+        "recall_iou30": _mean(recall30),
+        "recall_iou50": _mean(recall50),
+        "precision_iou30": _mean(prec30),
+    }
+
+
+def evaluate(backend, cases: list[Case], iou_low: float = 0.3, iou_high: float = 0.5) -> Report:
+    seg = segmentation_metrics(backend.segmenter, cases)
+    loc = localization_metrics(backend.localizer, cases, iou_low, iou_high)
     return Report(
         n_cases=len(cases),
-        n_lesions=n_lesions,
-        format_compliance=_mean([float(f) for f in fmt_flags]) if fmt_flags else 1.0,
-        dice_mean=_mean(dices),
-        dice_p10=_p10(dices),
-        iou_mean=_mean(ious),
-        recall_iou30=_mean(recall30),
-        recall_iou50=_mean(recall50),
-        precision_iou30=_mean(prec30),
+        n_lesions=seg["n_lesions"],
+        format_compliance=seg["format_compliance"],
+        dice_mean=seg["dice_mean"],
+        dice_p10=seg["dice_p10"],
+        iou_mean=seg["iou_mean"],
+        recall_iou30=loc["recall_iou30"],
+        recall_iou50=loc["recall_iou50"],
+        precision_iou30=loc["precision_iou30"],
     )
 
 
