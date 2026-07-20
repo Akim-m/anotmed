@@ -33,6 +33,51 @@ written-to-spec, not yet run against weights; that is where the work resumes.
 | DICOM-SEG export | **documented stub** — raises with root cause; needs source series wired |
 | 3D volumes | not implemented — per-slice scaffolding only (`slice_index` exists) |
 
+## Session log — 2026-07-20 (Phase 4: async submit + poll, CPU)
+
+Real inference is slow; made the upload non-blocking without adding any infra
+(no Redis/RQ). Suite 71 → 77.
+
+- **`anotmed/jobs.py`**: `Job` + `JobRegistry` — a `queue.Queue` and **exactly one
+  worker thread**. That single worker is also the GPU serialization point:
+  MedGemma and MedSAM-2 can never run concurrently, so the §2.1 VRAM budget is a
+  structural guarantee. Jobs are ephemeral tickets; studies/annotations stay
+  durable in the Store. Only real errors mark FAILED (a parse miss = 0 findings).
+- **`config.py`**: `ANOTMED_SYNC` — defaults to sync for the stub (fast CI) and
+  async for real backends; explicit override respected.
+- **`api.py`**: async path returns `202 {job_id, study_id, status}`; new
+  `GET /api/jobs/{id}`. Review/export endpoints untouched → **export gate safe by
+  construction**. `review.html` upload handles both 200 (inline) and 202 (poll).
+
+Re-proved the safety invariant THROUGH the async path (tests + a **live uvicorn
+drive**: 202 → poll → completed → 409 until accept → accepted-only export).
+
+## Session log — 2026-07-20 (Phase 3a: the safety validation gate, CPU)
+
+Built the absolute Dice/IoU validation harness — the project's hard safety
+requirement (backlog #4). Runs entirely on the stub + synthetic data (no GPU);
+the real-data run is Phase 3b (owner: modality + labeled set). Suite 51 → 71.
+
+- **`eval/metrics.py`** (pure numpy): Dice, IoU, box IoU, greedy localization
+  recall/precision, and `valid_mask`. **Format compliance is scored separately
+  from quality-given-valid** — an accurate-but-flaky model can't hide behind a
+  good mean Dice. Values pinned to hand-computed ground truth.
+- **`eval/datasets.py`**: synthetic `Case`s (GT boxes + FWHM-disk masks from the
+  same Gaussian lesions as `make_sample_dicom`), so the gate runs today.
+  `load_dir()` is the Phase 3b hook.
+- **`eval/run.py`**: `evaluate()` scores segmentation on **GT-box prompts**
+  (isolates segmenter from localizer) + localization separately; `Floors.check()`
+  enforces floors; CLI `--tier absolute` (exit 1 on miss), `--determinism`,
+  `--compare` (fp8 vs bf16). Never touches the Store.
+- **`eval/floors.yaml`**: suggested clinical floors, **marked owner-must-sign**.
+  Loaded via the `eval` extra (`pyyaml`); the fast `tests/` build Floors directly.
+
+Verified: harness runs, determinism OK, and the gate **correctly refuses the
+non-clinical stub** (Dice 0.733 < 0.85 → exit 1) while format compliance stays
+1.0 — the two axes visibly diverge. When real MedSAM-2 lands (Phase 2), this same
+gate scores it with no new code. **Backlog #4 machinery is ready; the signed run
+is owner-gated (P3b).**
+
 ## Session log — 2026-07-20 (Phase 1: MedGemma behind vLLM, GPU-free)
 
 Built the whole vLLM MedGemma path and its tests without a GPU — the app is now
