@@ -38,7 +38,8 @@ if [ -z "${GPU_MEM_UTIL:-}" ]; then
 fi
 
 # --- gated-but-cached: run offline + supply the cached chat template ----------
-SNAP="$(ls -d "${HF_HOME:-$HOME/.cache/huggingface}"/hub/models--"$(echo "$MODEL" | tr '/' '-')"/snapshots/*/ 2>/dev/null | head -1 || true)"
+# HF cache dir uses '--' between org and model: models--google--medgemma-4b-it
+SNAP="$(ls -d "${HF_HOME:-$HOME/.cache/huggingface}"/hub/models--"$(echo "$MODEL" | sed 's#/#--#g')"/snapshots/*/ 2>/dev/null | head -1 || true)"
 CHAT_ARG=()
 OFFLINE=()
 if [ -n "$SNAP" ]; then
