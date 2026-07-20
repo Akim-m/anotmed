@@ -155,8 +155,19 @@ loads detection-only sets. Deferred (not needed for dental milestone-1): windowi
 + detector (RT-DETR/torchvision). The `DetectorLocalizer` seam (needs only `.predict()` →
 xyxy/conf/cls) makes that swap contained.
 
-**In progress:** training a YOLOv8n tooth detector on DENTEX (download finishing), then measure
-its localization recall vs MedGemma's 0.000/0.370 via `eval.run --modality dental`.
+**RESULT — the pivot is validated on real data.** Trained a YOLOv8n tooth detector on DENTEX
+(`scripts/prep_dentex.py` → `scripts/train_dental.py`; val mAP50 0.969, ~5 min, batch 4,
+~1 GiB VRAM). Through anotmed's own gate on held-out DENTEX (96 imgs, 2754 teeth):
+**recall@0.3 = 0.994, @0.5 = 0.983, precision 0.960 — PASSES the 0.85 dental floor**, vs
+MedGemma's 0.370 (endoscopy) / 0.000 (CT). The measured localizer bottleneck is fixed by
+a dedicated detector; MedGemma stays as the Reporter. Weights: `/root/dental_weights/
+dentex_tooth/weights/best.pt` (research-only — DENTEX NC + ultralytics AGPL). A debugging
+lesson folded into the profile system: global `max_findings=8` capped recall at 0.28 (a
+panoramic has ~32 teeth) — `ModalityProfile.max_findings` (dental=40) is the fix.
+
+Next candidates: milestone-2 (4-class DENTEX pathology detector — the clinical findings);
+the full dental pipeline live (detector → SAM2 mask → MedGemma report → review → export);
+or the next modality (VinDr-CXR chest X-ray, per the shortlist).
 
 ## Owner-gated remainder — what only your hardware/data/decisions can close
 
