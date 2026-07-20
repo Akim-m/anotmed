@@ -29,9 +29,33 @@ written-to-spec, not yet run against weights; that is where the work resumes.
 | FastAPI service + review UI | complete |
 | MedGemma adapter (`backends/medgemma.py`) | **written-to-spec, not run** — needs 1 alignment pass |
 | MedSAM-2 adapter (`backends/medsam.py`) | **written-to-spec, not run** — needs your checkpoint |
-| COCO export | complete |
-| DICOM-SEG export | **documented stub** — raises with root cause; needs source series wired |
+| COCO export | complete — now emits exact-mask RLE (not a hull approximation) |
+| DICOM-SEG export | **complete** — highdicom, accepted-only, references the de-identified source |
 | 3D volumes | not implemented — per-slice scaffolding only (`slice_index` exists) |
+
+## Session log — 2026-07-20 (Phase 5: DICOM-SEG export + COCO-RLE, CPU)
+
+Replaced the DICOM-SEG 501 stub with a real, tested writer and tightened COCO
+fidelity. `highdicom` installed and round-trip-verified. Suite 77 → 82.
+
+- **Privacy posture changed (owner-approved):** upload now retains a
+  **de-identified** copy of the source DICOM (`io_dicom.deidentify` strips PHI
+  *before* write) so the SEG can reference the original series. New invariant:
+  *no PHI on disk, but a de-identified source is retained.* SAFETY.md updated.
+- **`io_dicom`**: split `read_dataset` + `dataset_to_array_meta` so the API can
+  keep the Dataset. **`store`**: `create_study(source_ds=…)` saves
+  `<sid>/source.dcm`; `source_dataset()` reads it back.
+- **`anotmed/export_seg.py`**: `highdicom.seg.Segmentation` from the source +
+  accepted masks — one segment per accepted annotation, generic property codes
+  (modality-specific codes await §4), semi-automatic algorithm. Ensures the
+  Type-2 attrs highdicom copies from a SecondaryCapture source exist.
+- **`api.py`**: `format=dicom-seg` streams `application/dicom`, still 409 while
+  pending, still fed **only** by `accepted_annotations` — same gate. Round-trip
+  test: accept 1 of 2 → re-read → exactly one segment matching the accepted mask.
+- **COCO-RLE**: `io_dicom.mask_to_rle` emits exact uncompressed RLE;
+  `annotations_to_coco` uses it instead of the convex-hull approximation.
+
+**Backlog #5 (DICOM-SEG) done.** Remaining owner-gated: live PACS-viewer check.
 
 ## Session log — 2026-07-20 (Phase 4: async submit + poll, CPU)
 
@@ -230,8 +254,9 @@ Both are the only places you should need to touch to go from stub to real:
 3. **Align the MedSAM-2 loader** to your checkpoint; verify box→mask on 1 image.
 4. **Validate** Dice/IoU + localization on a labeled set from *your* modalities
    (SAFETY requirement — do before any real use).
-5. **Wire DICOM-SEG export** — retain the source series (`Study.source_path` is
-   already there) and build the segmentation via highdicom.
+5. ~~**Wire DICOM-SEG export**~~ **DONE 2026-07-20** (Phase 5) — retains a
+   de-identified source, builds the SEG via highdicom, accepted-only. Remaining:
+   open the exported SEG in a real PACS viewer over the source series (owner).
 6. **Confirm target modality**; tune default windowing; add 3D volume support if
    needed (loop the pipeline over slices — `slice_index` is already plumbed).
 7. **Hardening if scaling** beyond one workstation: auth, multi-user, a real DB.

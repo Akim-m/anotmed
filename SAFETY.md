@@ -49,9 +49,11 @@ and `tests/test_api.py` — do not route around it.
    Research and education use is lower-stakes but still your responsibility.
 3. **Data / PHI.** Run models locally (the point of the WSL/GPU setup) — do not
    send patient images to a third-party API without a BAA and de-identification.
-   anotmed persists only the pixel array and non-identifying metadata; it never
-   writes DICOM PHI tags to disk, and `io_dicom.deidentify` is available for
-   files you do keep.
+   anotmed persists the pixel array, non-identifying metadata, and — so DICOM-SEG
+   can reference the original series — a **de-identified copy of the source DICOM**:
+   `io_dicom.deidentify` strips PHI tags in place *before* the source is written,
+   so identifying tags never reach disk. `deidentify` is a pragmatic scrub, not a
+   certified anonymizer — verify it covers your source's tags before real use.
 4. **Licensing.** MedGemma ships under Google's Health AI Developer Foundations
    terms (a health-use policy, not plain OSS). SAM2 is Apache-2.0; MedSAM-2
    checkpoints carry their own terms. Confirm your use is permitted.
