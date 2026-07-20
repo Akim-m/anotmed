@@ -32,6 +32,10 @@ class Config:
 
     # Real-model settings (only read by the medgemma+medsam backend).
     device: str = field(default_factory=lambda: os.getenv("ANOTMED_DEVICE", "cuda"))
+    # Where the MedSAM-2 segmenter runs. Defaults to ANOTMED_DEVICE, but can be
+    # pinned to "cpu" independently to free VRAM for vLLM when the GPU is tight.
+    seg_device: str = field(default_factory=lambda: os.getenv(
+        "ANOTMED_SEG_DEVICE", os.getenv("ANOTMED_DEVICE", "cuda")))
     medgemma_model: str = field(
         default_factory=lambda: os.getenv("ANOTMED_MEDGEMMA_MODEL", "google/medgemma-4b-it"))
     sam_checkpoint: str = field(default_factory=lambda: os.getenv("ANOTMED_SAM_CHECKPOINT", ""))

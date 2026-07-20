@@ -33,7 +33,10 @@ def _load(cfg: Config):
     from sam2.build_sam import build_sam2
     from sam2.sam2_image_predictor import SAM2ImagePredictor
 
-    device = cfg.device if torch.cuda.is_available() else "cpu"
+    # seg_device lets the segmenter run on CPU independently of the VLM device,
+    # to free VRAM for vLLM when the GPU is tight (PLAN.md §2.1).
+    want_cuda = cfg.seg_device.startswith("cuda")
+    device = cfg.seg_device if (want_cuda and torch.cuda.is_available()) else "cpu"
     model = build_sam2(cfg.sam_config, cfg.sam_checkpoint, device=device)
     return SAM2ImagePredictor(model), torch
 
@@ -61,8 +64,13 @@ def _conform_mask(raw, rows: int, cols: int) -> np.ndarray:
 class MedSAM2Segmenter:
     name = "medsam2-segmenter"
 
-    def __init__(self, cfg: Config):
-        self._predictor, self._torch = _load(cfg)
+    def __init__(self, cfg: Config, predictor=None, torch_mod=None):
+        # predictor/torch_mod are injectable so segment() can be tested end-to-end
+        # without torch or a checkpoint; production leaves them None and loads.
+        if predictor is None or torch_mod is None:
+            predictor, torch_mod = _load(cfg)
+        self._predictor = predictor
+        self._torch = torch_mod
         self.name = f"medsam2-segmenter:{cfg.sam_checkpoint.split('/')[-1] or 'sam2'}"
 
     def segment(self, image: np.ndarray, box: BBox, meta: ImageMeta) -> np.ndarray:

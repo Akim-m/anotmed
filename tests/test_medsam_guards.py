@@ -15,12 +15,87 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from anotmed.backends.medsam import _conform_mask, _load
+from anotmed.backends.medsam import MedSAM2Segmenter, _conform_mask, _load
 from anotmed.config import Config
+from anotmed.schema import BBox, ImageMeta
 
 
 def _cfg_without_weights() -> Config:
     return Config(backend="medgemma+medsam", sam_checkpoint="", sam_config="")
+
+
+# --- fakes so segment() can be driven end-to-end with no torch ----------------
+
+class _FakeTorch:
+    class _Ctx:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, *a):
+            return False
+
+    def inference_mode(self):
+        return _FakeTorch._Ctx()
+
+
+class _FakePredictor:
+    """Stands in for SAM2ImagePredictor: records inputs, replays a canned mask."""
+
+    def __init__(self, mask):
+        self.mask = mask
+        self.image = None
+        self.box = None
+
+    def set_image(self, rgb):
+        self.image = rgb
+
+    def predict(self, box=None, multimask_output=False):
+        self.box = box
+        return np.stack([self.mask]), np.array([0.9]), None
+
+
+def _segmenter(mask) -> MedSAM2Segmenter:
+    cfg = Config(backend="medgemma+medsam", sam_checkpoint="/w/medsam2.pt", sam_config="/w/c.yaml")
+    return MedSAM2Segmenter(cfg, predictor=_FakePredictor(mask), torch_mod=_FakeTorch())
+
+
+def _meta() -> ImageMeta:
+    return ImageMeta(study_id="s", rows=64, cols=64, modality="CT",
+                     window_center=40, window_width=400)
+
+
+# --- segment() shape contract: mask always comes out (rows, cols) bool --------
+
+def test_segment_returns_image_shaped_bool_mask():
+    mask = np.zeros((64, 64), dtype=bool)
+    mask[10:20, 10:20] = True
+    out = _segmenter(mask).segment(np.zeros((64, 64), np.float32),
+                                   BBox(x=8, y=8, w=16, h=16), _meta())
+    assert out.shape == (64, 64) and out.dtype == np.bool_
+    assert out[15, 15]
+
+
+def test_segment_resizes_model_resolution_mask_to_image():
+    mask = np.zeros((32, 32), dtype=bool)  # predictor returns at half resolution
+    mask[:16, :16] = True
+    out = _segmenter(mask).segment(np.zeros((64, 64), np.float32),
+                                   BBox(x=0, y=0, w=64, h=64), _meta())
+    assert out.shape == (64, 64)
+    assert out[0, 0] and not out[63, 63]
+
+
+def test_segment_feeds_display_rgb_to_the_predictor():
+    seg = _segmenter(np.zeros((64, 64), dtype=bool))
+    seg.segment(np.zeros((64, 64), np.float32), BBox(x=0, y=0, w=10, h=10), _meta())
+    assert seg._predictor.image.shape == (64, 64, 3)
+    assert seg._predictor.image.dtype == np.uint8
+
+
+def test_segment_clamps_box_into_the_image_before_predict():
+    seg = _segmenter(np.zeros((64, 64), dtype=bool))
+    seg.segment(np.zeros((64, 64), np.float32), BBox(x=-20, y=-20, w=200, h=200), _meta())
+    x0, y0, x1, y1 = seg._predictor.box[0]
+    assert x0 >= 0 and y0 >= 0 and x1 <= 64 and y1 <= 64
 
 
 def test_load_without_checkpoint_raises_runtimeerror_not_importerror():
