@@ -22,17 +22,40 @@ from ..schema import BBox, ImageMeta
 
 
 def _load(cfg: Config):
-    import torch
-    from sam2.build_sam import build_sam2
-    from sam2.sam2_image_predictor import SAM2ImagePredictor
-
+    # Check config BEFORE importing torch/sam2: a user who forgot to set the
+    # weights must get this actionable message, not a cryptic ModuleNotFoundError
+    # from a torch that was never installed on this box.
     if not cfg.sam_checkpoint or not cfg.sam_config:
         raise RuntimeError(
             "MedSAM-2 needs ANOTMED_SAM_CHECKPOINT and ANOTMED_SAM_CONFIG set."
         )
+    import torch
+    from sam2.build_sam import build_sam2
+    from sam2.sam2_image_predictor import SAM2ImagePredictor
+
     device = cfg.device if torch.cuda.is_available() else "cpu"
     model = build_sam2(cfg.sam_config, cfg.sam_checkpoint, device=device)
     return SAM2ImagePredictor(model), torch
+
+
+def _conform_mask(raw, rows: int, cols: int) -> np.ndarray:
+    """Coerce a predictor's raw output into a bool mask of shape (rows, cols).
+
+    SAM2 builds variously return CxHxW, a batched NxCxHxW, or a mask at the
+    model's internal resolution. Collapse any leading dims to the last two
+    spatial axes, then nearest-neighbor resize to the image grid (numpy-only, no
+    scipy/cv2 dependency) so measurement always sees a matching shape.
+    """
+    arr = np.asarray(raw)
+    while arr.ndim > 2:
+        arr = arr[0]
+    arr = arr.astype(bool)
+    if arr.shape == (rows, cols):
+        return arr
+    src_r, src_c = arr.shape
+    ys = np.minimum((np.arange(rows) * src_r // rows), src_r - 1)
+    xs = np.minimum((np.arange(cols) * src_c // cols), src_c - 1)
+    return arr[np.ix_(ys, xs)]
 
 
 class MedSAM2Segmenter:
@@ -55,9 +78,8 @@ class MedSAM2Segmenter:
             masks, scores, _ = self._predictor.predict(
                 box=xyxy[None, :], multimask_output=False
             )
-        mask = np.asarray(masks[0]).astype(bool)
-        if mask.shape != (h, w):  # some builds return CxHxW or resized masks
-            mask = np.asarray(masks).reshape(-1, *masks.shape[-2:])[0].astype(bool)
+        mask = _conform_mask(masks[0], h, w)
+        assert mask.shape == (h, w), f"mask {mask.shape} != image {(h, w)}"
         return mask
 
 

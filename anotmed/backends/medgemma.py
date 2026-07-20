@@ -18,34 +18,12 @@ Integration notes (this is the one place you tune to the released model card):
 
 from __future__ import annotations
 
-import json
-import re
-
 import numpy as np
 
 from ..config import Config
 from ..schema import BBox, ImageMeta
 from .base import Detection
-
-
-def _extract_json_array(text: str) -> list:
-    """Pull the first JSON array out of a model response (tolerates code fences)."""
-    text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```")
-    start = text.find("[")
-    if start == -1:
-        return []
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "[":
-            depth += 1
-        elif text[i] == "]":
-            depth -= 1
-            if depth == 0:
-                try:
-                    return json.loads(text[start : i + 1])
-                except json.JSONDecodeError:
-                    return []
-    return []
+from .parsing import parse_detections
 
 
 class _MedGemma:
@@ -119,25 +97,7 @@ class MedGemmaLocalizer:
 
         pil = to_display_rgb(image, meta)
         text = self._m.generate(pil, _LOCALIZE_PROMPT, max_new_tokens=512)
-        return self._parse_boxes(text, meta.rows, meta.cols)[: self.max_findings]
-
-    def _parse_boxes(self, text: str, rows: int, cols: int) -> list[Detection]:
-        dets: list[Detection] = []
-        for item in _extract_json_array(text):
-            box = item.get("box_2d") if isinstance(item, dict) else None
-            if not (isinstance(box, (list, tuple)) and len(box) == 4):
-                continue
-            ymin, xmin, ymax, xmax = (float(v) for v in box)
-            y0, y1 = sorted((ymin / 1000.0 * rows, ymax / 1000.0 * rows))
-            x0, x1 = sorted((xmin / 1000.0 * cols, xmax / 1000.0 * cols))
-            dets.append(
-                Detection(
-                    box=BBox(x=x0, y=y0, w=max(1.0, x1 - x0), h=max(1.0, y1 - y0)),
-                    label=str(item.get("label", "finding")),
-                    score=float(item.get("score", 0.0)),
-                )
-            )
-        return dets
+        return parse_detections(text, meta.rows, meta.cols)[: self.max_findings]
 
 
 class MedGemmaReporter:
