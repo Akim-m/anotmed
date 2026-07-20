@@ -7,6 +7,8 @@ accepted annotations become segments.
 
 from __future__ import annotations
 
+import io
+
 import numpy as np
 import pydicom
 import pytest
@@ -45,3 +47,31 @@ def test_upload_persists_a_deidentified_source(client, tmp_path):
     assert str(ds.PatientName) == ""   # PHI blanked
     assert str(ds.PatientID) == ""
     assert ds.SeriesInstanceUID        # referencing UID preserved for overlay
+
+
+def test_dicom_seg_export_is_accepted_only_and_roundtrips(client, tmp_path):
+    from anotmed import api
+
+    data = _upload(client, tmp_path)
+    sid = data["study"]["id"]
+    anns = data["annotations"]
+    assert len(anns) >= 2, "need >=2 findings to prove accepted-only"
+
+    # gate blocks while pending
+    assert client.post(f"/api/studies/{sid}/export?format=dicom-seg").status_code == 409
+
+    aid = anns[0]["id"]
+    client.post(f"/api/studies/{sid}/annotations/{aid}/review", json={"action": "accept"})
+
+    r = client.post(f"/api/studies/{sid}/export?format=dicom-seg")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("application/dicom")
+
+    seg = pydicom.dcmread(io.BytesIO(r.content))
+    assert seg.Modality == "SEG"
+    assert len(seg.SegmentSequence) == 1  # exactly the one accepted finding
+
+    # the segment pixels equal the accepted annotation's mask
+    mask = api._store.load_mask(sid, aid)
+    if mask is not None:
+        assert np.array_equal(np.squeeze(seg.pixel_array).astype(bool), mask)

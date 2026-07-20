@@ -209,7 +209,15 @@ def export(sid: str, format: str = "coco"):
         masks = _store.load_masks(sid, accepted)
         return JSONResponse(annotations_to_coco(study, accepted, masks))
     if format == "dicom-seg":
-        raise HTTPException(501, "DICOM-SEG export not wired in this build; use COCO")
+        source_ds = _store.source_dataset(sid)
+        if source_ds is None:
+            raise HTTPException(409, "no source series retained for this study; use COCO")
+        from .export_seg import export_dicom_seg_bytes
+        masks = _store.load_masks(sid, accepted)
+        data = export_dicom_seg_bytes(source_ds, study.meta, accepted, masks,
+                                      backend_name=_cfg.backend)
+        return Response(content=data, media_type="application/dicom",
+                        headers={"Content-Disposition": f'attachment; filename="{sid}_seg.dcm"'})
     raise HTTPException(400, f"unknown format {format!r}")
 
 
