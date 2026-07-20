@@ -7,7 +7,7 @@ real backend is requested, so the stub path stays dependency-light.
 
 from __future__ import annotations
 
-from ..config import BACKEND_MODELS, BACKEND_STUB, BACKEND_VLLM, Config
+from ..config import BACKEND_DETECTOR, BACKEND_MODELS, BACKEND_STUB, BACKEND_VLLM, Config
 from .base import Backend, Detection, Localizer, Reporter, Segmenter
 
 __all__ = ["Backend", "Detection", "Localizer", "Reporter", "Segmenter", "build_backend"]
@@ -47,6 +47,19 @@ def build_backend(cfg: Config) -> Backend:
             segmenter=medsam.build(cfg),
             reporter=reporter,
             name=BACKEND_VLLM,
+        )
+
+    if cfg.backend == BACKEND_DETECTOR:
+        from . import detector, medsam, vllm_medgemma
+
+        localizer = detector.build(cfg)          # dedicated detector does the boxing
+        _, reporter = vllm_medgemma.build(cfg)   # MedGemma kept ONLY as the Reporter
+        reporter.client.health()                 # fail fast if the reporter is down
+        return Backend(
+            localizer=localizer,
+            segmenter=medsam.build(cfg),
+            reporter=reporter,
+            name=BACKEND_DETECTOR,
         )
 
     raise ValueError(f"Unknown backend {cfg.backend!r}")

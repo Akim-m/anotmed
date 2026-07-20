@@ -94,3 +94,48 @@ def test_missing_mask_raises_actionable_error(tmp_path):
     with pytest.raises(FileNotFoundError) as exc:
         load_dir(tmp_path)
     assert "lonely" in str(exc.value)
+
+
+# ---- load_coco_boxes: detection-only sets (e.g. DENTEX), no masks -----------
+
+def test_load_coco_boxes_reads_boxes_and_labels_without_masks(tmp_path):
+    import json
+
+    from eval.datasets import load_coco_boxes
+
+    (tmp_path / "images").mkdir()
+    Image.fromarray(np.zeros((40, 50), np.uint8)).save(tmp_path / "images" / "a.png")
+    Image.fromarray(np.zeros((40, 50), np.uint8)).save(tmp_path / "images" / "b.png")
+    coco = {
+        "images": [{"id": 1, "file_name": "a.png", "width": 50, "height": 40},
+                   {"id": 2, "file_name": "b.png", "width": 50, "height": 40}],
+        "categories": [{"id": 5, "name": "tooth"}],
+        "annotations": [
+            {"image_id": 1, "bbox": [10, 10, 20, 15], "category_id": 5},
+            {"image_id": 1, "bbox": [0, 0, 5, 5], "category_id": 5},
+        ],
+    }
+    (tmp_path / "coco.json").write_text(json.dumps(coco))
+
+    cases = load_coco_boxes(tmp_path / "images", tmp_path / "coco.json")
+    assert len(cases) == 2
+    by_id = {c.meta.study_id: c for c in cases}
+    assert len(by_id["1"].gt_boxes) == 2 and by_id["1"].gt_masks == []
+    assert by_id["1"].labels[0] == "tooth"
+    b = by_id["1"].gt_boxes[0]
+    assert (b.x, b.y, b.w, b.h) == (10.0, 10.0, 20.0, 15.0)
+    assert len(by_id["2"].gt_boxes) == 0  # image with no annotations still yields a Case
+
+
+def test_load_coco_boxes_honors_limit(tmp_path):
+    import json
+
+    from eval.datasets import load_coco_boxes
+
+    (tmp_path / "images").mkdir()
+    for i in range(3):
+        Image.fromarray(np.zeros((8, 8), np.uint8)).save(tmp_path / "images" / f"i{i}.png")
+    coco = {"images": [{"id": i, "file_name": f"i{i}.png"} for i in range(3)],
+            "categories": [], "annotations": []}
+    (tmp_path / "coco.json").write_text(json.dumps(coco))
+    assert len(load_coco_boxes(tmp_path / "images", tmp_path / "coco.json", limit=2)) == 2

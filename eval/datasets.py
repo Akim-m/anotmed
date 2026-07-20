@@ -126,6 +126,42 @@ def _instances(mask: np.ndarray) -> list[np.ndarray]:
     return _components(mask > 0)  # binary -> connected regions
 
 
+def load_coco_boxes(images_dir: str | Path, coco_json: str | Path,
+                    spacing: tuple[float, float] = (1.0, 1.0), modality: str = "OT",
+                    category_field: str = "category_id", limit: int | None = None) -> list[Case]:
+    """Load a COCO detection set (boxes only, no masks) into Cases — e.g. DENTEX.
+
+    Each image becomes a Case with `gt_boxes` (from COCO bbox [x,y,w,h], clamped)
+    and `gt_masks=[]`. So `localization_metrics` scores fully; `segmentation_metrics`
+    sees 0 lesions and simply doesn't gate segmentation (no masks, no crash).
+    `category_field` selects the annotation's class field (DENTEX carries several).
+    `limit` caps how many images are loaded — keep RAM within budget on big sets.
+    """
+    import json
+
+    coco = json.loads(Path(coco_json).read_text())
+    cat_names = {c["id"]: c.get("name", str(c["id"])) for c in coco.get("categories", [])}
+    anns_by_img: dict = {}
+    for ann in coco.get("annotations", []):
+        anns_by_img.setdefault(ann["image_id"], []).append(ann)
+
+    cases: list[Case] = []
+    for im in coco.get("images", []):
+        if limit is not None and len(cases) >= limit:
+            break
+        arr = _load_image(Path(images_dir) / im["file_name"])
+        rows, cols = arr.shape
+        boxes, labels = [], []
+        for ann in anns_by_img.get(im["id"], []):
+            x, y, w, h = ann["bbox"]
+            boxes.append(BBox(x=float(x), y=float(y), w=float(w), h=float(h)).clamp(cols, rows))
+            labels.append(cat_names.get(ann.get(category_field), "finding"))
+        meta = ImageMeta(study_id=str(im["id"]), rows=rows, cols=cols,
+                         pixel_spacing_mm=spacing, modality=modality)
+        cases.append(Case(image=arr, meta=meta, gt_boxes=boxes, gt_masks=[], labels=labels))
+    return cases
+
+
 def load_dir(path: str | Path, spacing: tuple[float, float] = (1.0, 1.0),
              modality: str = "OT") -> list[Case]:
     """Load a labeled set for the validation gate (Phase 3b).

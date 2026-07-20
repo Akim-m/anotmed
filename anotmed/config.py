@@ -14,6 +14,7 @@ from pathlib import Path
 BACKEND_STUB = "stub"
 BACKEND_MODELS = "medgemma+medsam"
 BACKEND_VLLM = "vllm"
+BACKEND_DETECTOR = "detector+medsam"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -40,6 +41,14 @@ class Config:
         default_factory=lambda: os.getenv("ANOTMED_MEDGEMMA_MODEL", "google/medgemma-4b-it"))
     sam_checkpoint: str = field(default_factory=lambda: os.getenv("ANOTMED_SAM_CHECKPOINT", ""))
     sam_config: str = field(default_factory=lambda: os.getenv("ANOTMED_SAM_CONFIG", ""))
+
+    # Object-detector Localizer (the "detector+medsam" backend). A dedicated
+    # detector replaces MedGemma for localization; MedGemma stays as the Reporter.
+    detector_weights: str = field(default_factory=lambda: os.getenv("ANOTMED_DETECTOR_WEIGHTS", ""))
+    detector_device: str = field(
+        default_factory=lambda: os.getenv("ANOTMED_DETECTOR_DEVICE", os.getenv("ANOTMED_DEVICE", "cuda")))
+    detector_conf: float = field(default_factory=lambda: float(os.getenv("ANOTMED_DETECTOR_CONF", "0.25")))
+    detector_imgsz: int = field(default_factory=lambda: int(os.getenv("ANOTMED_DETECTOR_IMGSZ", "1024")))
 
     # vLLM MedGemma backend (thin httpx client to a separate vLLM OpenAI server).
     vllm_url: str = field(
