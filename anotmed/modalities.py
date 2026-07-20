@@ -59,6 +59,7 @@ PROFILES: dict[str, ModalityProfile] = {
         detector_imgsz=1024,
         max_findings=40,                              # a panoramic has up to ~32 teeth
         window=WindowSpec(mode="minmax"),
+        label_map={"item": "tooth"},                  # single_cls YOLO names its class "item"
         floors_key="dental",
         notes=("DENTEX is CC-BY-NC-SA-4.0 (non-commercial) and ultralytics is AGPL-3.0 — "
                "the trained detector weights are RESEARCH-ONLY. Cite Hamamci et al., "

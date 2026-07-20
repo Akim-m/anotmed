@@ -100,6 +100,29 @@ def test_no_boxes_yields_empty_list():
                                {}, 100, 100, 0.25, 8) == []
 
 
+def test_label_map_remaps_detector_class_names():
+    dets = boxes_to_detections(
+        xyxy=np.array([[0, 0, 5, 5]]), conf=np.array([0.9]), cls=np.array([0]),
+        names={0: "item"}, rows=100, cols=100, min_conf=0.0, max_findings=8,
+        label_map={"item": "tooth"})
+    assert dets[0].label == "tooth"
+
+
+def test_label_map_none_keeps_raw_class_name():
+    dets = boxes_to_detections(
+        xyxy=np.array([[0, 0, 5, 5]]), conf=np.array([0.9]), cls=np.array([0]),
+        names={0: "item"}, rows=100, cols=100, min_conf=0.0, max_findings=8)
+    assert dets[0].label == "item"
+
+
+def test_localizer_applies_the_active_modality_label_map():
+    # single_cls YOLO names its class "item"; the dental profile maps it to "tooth".
+    pred = _FakePredictor(xyxy=[[10, 20, 40, 60]], conf=[0.8], cls=[0], names={0: "item"})
+    cfg = Config(backend="detector+medsam", detector_weights="/w/d.pt", modality="dental")
+    dets = DetectorLocalizer(cfg, predictor=pred).propose(np.zeros((100, 100), np.float32), _meta())
+    assert dets[0].label == "tooth"
+
+
 # ---- DetectorLocalizer.propose (injected predictor, no weights) --------------
 
 def test_propose_runs_detector_and_returns_detections():

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Mapping
 
 import numpy as np
 
@@ -41,12 +42,15 @@ def _np(x) -> np.ndarray:
 
 
 def boxes_to_detections(xyxy, conf, cls, names, rows: int, cols: int,
-                        min_conf: float, max_findings: int) -> list[Detection]:
+                        min_conf: float, max_findings: int,
+                        label_map: Mapping[str, str] | None = None) -> list[Detection]:
     """Convert a detector's (xyxy, conf, cls) output to clamped Detections.
 
     Pixel xyxy (detector-native) -> top-left BBox clamped into the image; class id
-    -> label via `names`; confidence -> score. Drops sub-threshold boxes, sorts by
-    score, caps at `max_findings`. Pure numpy — never raises on well-formed input.
+    -> raw name via `names`, then remapped to a clinical finding name via
+    `label_map` (e.g. the single-class YOLO name "item" -> "tooth"); confidence ->
+    score. Drops sub-threshold boxes, sorts by score, caps at `max_findings`. Pure
+    numpy — never raises on well-formed input.
     """
     dets: list[Detection] = []
     for (x0, y0, x1, y1), v, c in zip(np.asarray(xyxy).reshape(-1, 4), conf, cls):
@@ -56,7 +60,9 @@ def boxes_to_detections(xyxy, conf, cls, names, rows: int, cols: int,
         box = BBox(x=float(x0), y=float(y0),
                    w=max(1.0, float(x1) - float(x0)),
                    h=max(1.0, float(y1) - float(y0))).clamp(cols, rows)
-        dets.append(Detection(box=box, label=str(names.get(int(c), "finding")), score=score))
+        raw = str(names.get(int(c), "finding"))
+        label = label_map.get(raw, raw) if label_map else raw
+        dets.append(Detection(box=box, label=label, score=score))
     dets.sort(key=lambda d: d.score, reverse=True)
     return dets[:max_findings]
 
@@ -69,6 +75,7 @@ class DetectorLocalizer:
 
     def propose(self, image: np.ndarray, meta: ImageMeta) -> list[Detection]:
         from ..io_dicom import to_display_array
+        from ..modalities import get_profile
 
         try:
             rgb = to_display_array(image, meta)  # HxWx3 uint8; detector-native pixels
@@ -78,7 +85,8 @@ class DetectorLocalizer:
             boxes = result.boxes
             return boxes_to_detections(
                 _np(boxes.xyxy), _np(boxes.conf), _np(boxes.cls), result.names,
-                meta.rows, meta.cols, self.cfg.detector_conf, self.cfg.max_findings)
+                meta.rows, meta.cols, self.cfg.detector_conf, self.cfg.max_findings,
+                label_map=get_profile(self.cfg.modality).label_map)
         except Exception:  # a detector failure must not crash the study upload
             log.exception("detector failed for study %s", meta.study_id)
             return []

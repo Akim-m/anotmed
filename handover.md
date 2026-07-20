@@ -178,6 +178,21 @@ Next candidates: milestone-2 (4-class DENTEX pathology detector — the clinical
 subset already downloaded); the deferred Part A polish (label_map, windowing-at-ingest); or the
 next modality (VinDr-CXR chest X-ray, per the shortlist).
 
+## Active task list (2026-07-20, polish + extensions)
+
+Working through these in order; commits land per task. Live status:
+
+- [x] **1. Polish — profile `label_map`** (detector "item" → "tooth"). Done.
+- [ ] 2. Polish — windowing-at-ingest (`resolve_window` in api.py + eval loaders).
+- [ ] 3. Polish — `conftest` (`ANOTMED_MODALITY=""`) + `.env.example` knobs + modality in provenance.
+- [ ] 4. Docs — refresh README + ARCHITECTURE + artifact (detector/dental/multi-modality/memory rules).
+- [ ] 5. Cleanup — reusable dental scripts; assess deleting legacy `backends/medgemma.py` (vLLM live E2E has passed).
+- [ ] 6. Dental milestone-2 — 4-class pathology detector (disease subset already downloaded); sign a pathology floor.
+- [ ] 7. Next modality — VinDr-CXR chest X-ray (MONOCHROME1 fix + `chest-xr` profile + loader + train + gate).
+
+Owner-gated (I can't): sign clinical floors; regulatory path; live PACS-viewer SEG check;
+commercial-license swaps (DENTEX-NC + ultralytics-AGPL → CBIS-DDSM + RT-DETR); more labeled data.
+
 ## Owner-gated remainder — what only your hardware/data/decisions can close
 
 Everything below needs something I cannot supply in a CPU sandbox. The code paths
