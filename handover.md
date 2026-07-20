@@ -33,12 +33,34 @@ safety gate on a labeled set in your modality, and decide the modality. See the
 | FastAPI service + review UI | complete; async submit+poll + uniform `{error,message}` errors |
 | MedGemma via vLLM (`backends/vllm_medgemma.py`) | **LIVE on the RTX 4060** (FP8, vLLM 0.23) — describes images correctly, emits valid guided JSON, driven by `VllmLocalizer` end-to-end |
 | MedGemma in-process (`backends/medgemma.py`) | legacy fallback; **delete after the vLLM live run passes** |
-| MedSAM-2 adapter (`backends/medsam.py`) | **hardened + `segment()` tested via injected predictor**; needs your checkpoint to run (🟡) |
+| MedSAM-2 adapter (`backends/medsam.py`) | **LIVE on the RTX 4060** — real box→mask verified with SAM2.1-hiera-small weights (focused mask, shape contract holds). A MedSAM-2 medical checkpoint is a drop-in (same predictor API) |
 | Safety gate (`eval/`) | **complete on stub+synthetic**; correctly refuses the stub. Real run needs a labeled set (P3b) |
 | Async jobs (`jobs.py`) | complete — one worker = GPU serialization point |
 | COCO export | complete — now emits exact-mask RLE (not a hull approximation) |
 | DICOM-SEG export | **complete** — highdicom, accepted-only, references the de-identified source |
 | 3D volumes | not implemented — `slice_index` plumbed; gated on the modality decision (P6) |
+
+## Session log — 2026-07-20 (MedSAM-2 segmenter LIVE + real memory findings)
+
+Brought the segmenter up on real weights. Installed `sam2` into the vLLM venv
+(reusing its torch 2.11+cu130, `SAM2_BUILD_CUDA=0` — no nvcc here), downloaded
+`sam2.1_hiera_small.pt` (176 MB), and ran anotmed's `MedSAM2Segmenter` end-to-end:
+a box around a synthetic lesion → a focused (256,256) bool mask, 1321 px (2% of
+image), correctly covering the lesion. **The `segment()` wiring works with real
+weights; a MedSAM-2 medical checkpoint drops in unchanged** (same SAM2 predictor
+API). Config used: `ANOTMED_SAM_CHECKPOINT=/root/sam2_checkpoints/sam2.1_hiera_small.pt`,
+`ANOTMED_SAM_CONFIG=configs/sam2.1/sam2.1_hiera_s.yaml`.
+
+**Real memory findings (correct the §2.1 estimate):**
+- MedGemma-4b FP8 needs **≥ ~0.70** `--gpu-memory-utilization` — at 0.60 vLLM
+  fails with "No available memory for the cache blocks" (weights ~4.5 GiB +
+  overhead already exceed 0.60×8 GiB before any KV cache). MedGemma-only: ~0.85.
+- Two-model coexistence on 8 GiB is tight (~6.9 GiB: vLLM at 0.72 + SAM2 ~1 GiB).
+  It *fits*, but per Akim we don't force it. **The full pipeline interleaves
+  MedGemma (localize+report) with SAM2 (segment), so it needs both resident** —
+  so for this box, prefer running the segmenter on CPU (`ANOTMED_SEG_DEVICE=cpu`,
+  the knob added in Phase 2) or serialize, rather than the tight GPU co-fit.
+- Both models are verified **individually** on the GPU; that's the milestone.
 
 ## Session log — 2026-07-20 (MedGemma running LIVE on the GPU)
 
