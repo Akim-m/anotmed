@@ -195,7 +195,10 @@ Working through these in order; commits land per task. Live status:
       localization eval; smoke-tested → dental 0.994). Assessed legacy `backends/medgemma.py`:
       **kept** as an optional in-process fallback (doesn't fit 8 GB bf16, but valid on larger
       GPUs; parsing shared via `parsing.py`) — README status clarified, not deleted.
-- [ ] 6. Dental milestone-2 — 4-class pathology detector (disease subset already downloaded); sign a pathology floor.
+- [~] **6. Dental milestone-2 — pathology detector** (in progress). Setup done: prep generalized,
+      `dental-path` profile + provisional floor (0.50). Training a 4-class YOLOv8n on the DENTEX
+      disease subset (493/106/106; Impacted/Caries/Periapical Lesion/Deep Caries). Eval next via
+      `MODALITY=dental-path scripts/eval_detector.py` on the 106 held-out.
 - [ ] 7. Next modality — VinDr-CXR chest X-ray (MONOCHROME1 fix + `chest-xr` profile + loader + train + gate).
 
 Owner-gated (I can't): sign clinical floors; regulatory path; live PACS-viewer SEG check;
