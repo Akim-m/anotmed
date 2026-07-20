@@ -136,37 +136,36 @@ through the async path and the live server.
 
 ```mermaid
 flowchart TD
-    P0["P0 · Adapter hardening<br/>✅ done"] --> P1["P1 · MedGemma via vLLM<br/>✅ LIVE on GPU"]
-    P1 --> P2["P2 · MedSAM-2 bring-up<br/>✅ segmenter LIVE"]
-    P0 --> P3a["P3a · Safety gate scaffold<br/>✅ done (refuses stub)"]
-    P1 --> P4["P4 · Async submit+poll<br/>✅ done"]
-    P1 --> P5["P5 · DICOM-SEG + RLE<br/>✅ done"]
-    P2 --> SEQ["Sequential runner<br/>✅ built"]
-    P2 --> P3b["P3b · Validate on real data<br/>🔴 owner: labeled set"]
-    P3a --> P3b
-    P3b --> P7["P7 · QLoRA finetune<br/>🔴 conditional"]
-    P2 --> P6["P6 · Modality tuning / 3D<br/>🔴 owner decision"]
+    P0["P0 · Adapter hardening<br/>✅"] --> P1["P1 · MedGemma via vLLM<br/>✅ LIVE"]
+    P1 --> P2["P2 · MedSAM-2<br/>✅ LIVE"]
+    P0 --> P3a["P3a · Safety gate<br/>✅ refuses stub"]
+    P1 --> P4["P4 · Async submit+poll<br/>✅"]
+    P1 --> P5["P5 · DICOM-SEG + RLE<br/>✅"]
+    P2 --> SEQ["Sequential runner<br/>✅"]
+    P3a --> P3b["P3b · Gate on REAL data<br/>✅ Kvasir / CT / DENTEX"]
+    P3b --> DET["Detector-as-Localizer<br/>✅ dental recall 0.994"]
+    DET --> MM["Multi-modality profiles<br/>✅ registry + per-mod floors"]
+    MM --> MOD["More modalities<br/>🔴 chest X-ray next"]
+    DET --> PATH["Dental pathology<br/>🔴 milestone-2"]
 
     classDef done fill:#1f7a3d,color:#fff;
     classDef gated fill:#5a1f1f,color:#fff;
-    class P0,P1,P2,P3a,P4,P5,SEQ done;
-    class P3b,P6,P7 gated;
+    class P0,P1,P2,P3a,P4,P5,SEQ,P3b,DET,MM done;
+    class MOD,PATH gated;
 ```
 
 | Phase | State | Note |
 |---|---|---|
-| P0 Adapter hardening | ✅ | 6 latent bugs fixed behind 19 tests |
-| P1 MedGemma via vLLM | ✅ **live** | FP8 on RTX 4060; guided JSON → detections |
-| P2 MedSAM-2 bring-up | ✅ **live** | real box→mask (SAM2.1); medical ckpt is a drop-in |
-| P3a Safety gate | ✅ | Dice/IoU floors; correctly refuses the non-clinical stub |
-| P4 Async submit+poll | ✅ | one worker = GPU serialization point |
-| P5 DICOM-SEG + COCO-RLE | ✅ | accepted-only; references de-identified source |
-| Sequential runner | ✅ | `scripts/run_sequential.py` (this box's 8 GiB path) |
-| P3b Validate on real data | 🔴 owner | needs a labeled set in your modality — **safety gate** |
-| P6 Modality tuning / 3D | 🔴 owner | drives checkpoint, windowing, 3D need |
-| P7 QLoRA finetune | 🔴 conditional | only if P3b shows a Dice gap |
+| P0–P5, sequential runner | ✅ | hardening, vLLM MedGemma (live), MedSAM-2 (live), gate, async, DICOM-SEG/RLE |
+| P3b Gate on **real data** | ✅ | ran on Kvasir (polyps), MSD Lung CT, DENTEX — honest measured misses drove the pivot |
+| **Detector-as-Localizer** | ✅ | MedGemma localized poorly (0.0–0.37) → a YOLOv8n detector: **recall 0.994** on dental |
+| **Multi-modality profiles** | ✅ | `modalities.py` registry; per-modality window/labels/`max_findings`/floors |
+| Dental pathology (milestone-2) | 🔴 | 4-class caries/lesion detector — the clinical findings |
+| More modalities | 🔴 | VinDr-CXR chest X-ray next (box-only path reused) |
 
-**88 tests green.** Both real models verified individually on the GPU.
+**132 tests green.** Full detect→segment→measure→report→gate→export loop verified live on
+real dental. The **finding of the whole exercise**: the localizer was the bottleneck, and a
+dedicated detector — not a bigger VLM or a medical checkpoint — is what fixes it.
 
 ---
 

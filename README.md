@@ -119,6 +119,40 @@ anotmed-serve
 Kept as a fallback; slated for removal once the vLLM live run is confirmed.
 </details>
 
+## Detector backend & modalities
+
+Real-data validation showed MedGemma **describes** images well but **localizes**
+lesions poorly (recall 0.37 endoscopy / 0.00 CT). So a dedicated object detector
+can take over localization while MedGemma stays as the Reporter:
+
+```bash
+export ANOTMED_BACKEND=detector+medsam        # detector localizes, SAM2 segments, MedGemma reports
+export ANOTMED_MODALITY=dental                # selects a modality profile (see anotmed/modalities.py)
+export ANOTMED_DETECTOR_WEIGHTS=/path/to/detector.pt
+anotmed-serve
+```
+
+A **modality profile** (`anotmed/modalities.py`) declares per-modality defaults —
+detector weights/conf/imgsz, display windowing, class→finding label map,
+`max_findings`, segmenter, and safety floors — so adding a modality is one
+dataclass, not a code change. `ANOTMED_MODALITY` picks the active one; explicit
+env knobs override it. Validated on dental panoramic X-ray (DENTEX): a YOLOv8n
+tooth detector reached **recall 0.994** through the gate, vs MedGemma's 0.00–0.37.
+Training/eval helpers: `scripts/prep_dentex.py`, `scripts/train_dental.py`. Run the
+gate per modality: `python -m eval.run --data <dir> --modality dental`.
+
+> Dental prototype weights are **research-only** — DENTEX is CC-BY-NC-SA and
+> ultralytics is AGPL-3.0. The architecture is license-clean; a commercial build
+> swaps in a permissive dataset + detector (e.g. CBIS-DDSM + RT-DETR).
+
+## Memory (tight-GPU rule)
+
+On an 8 GB card, keep **≥ 1 GB free on both VRAM and system RAM at all times** —
+never fill either. The two models don't co-fit, so run them **one at a time**:
+`scripts/serve_vllm.sh` caps vLLM util at 0.80, and `scripts/run_sequential.py`
+runs the pipeline in phases (MedGemma, freed, then SAM2). Prefer FP8 (not bf16),
+`ANOTMED_SEG_DEVICE=cpu` when VRAM is tight, and subset/stream large datasets.
+
 ## API
 
 | method + path | does |

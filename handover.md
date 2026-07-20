@@ -188,7 +188,9 @@ Working through these in order; commits land per task. Live status:
 - [x] **3. Polish — conftest + `.env.example` + modality in provenance**. Done — `tests/conftest.py`
       pins `ANOTMED_MODALITY=""`; `.env.example` gains the detector/modality knobs;
       `DetectorLocalizer.name` tags the modality (`detector:x.pt[dental]`) for the audit trail.
-- [ ] 4. Docs — refresh README + ARCHITECTURE + artifact (detector/dental/multi-modality/memory rules).
+- [x] **4. Docs — refresh README + ARCHITECTURE + artifact**. Done — README gains a "Detector
+      backend & modalities" + "Memory rule" section; ARCHITECTURE roadmap + the rendered artifact
+      (same URL) show the detector pivot, multi-modality, and real-data validation.
 - [ ] 5. Cleanup — reusable dental scripts; assess deleting legacy `backends/medgemma.py` (vLLM live E2E has passed).
 - [ ] 6. Dental milestone-2 — 4-class pathology detector (disease subset already downloaded); sign a pathology floor.
 - [ ] 7. Next modality — VinDr-CXR chest X-ray (MONOCHROME1 fix + `chest-xr` profile + loader + train + gate).
