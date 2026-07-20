@@ -125,6 +125,39 @@ Tooling used (repo): `eval/datasets.load_dir` (real sets), `eval/run` split into
 `segmentation_metrics`/`localization_metrics` (one model at a time, memory-safe).
 Checkpoints live in `/root/sam2_checkpoints/` (not in the repo).
 
+## Session log — 2026-07-20 (detector-as-Localizer pivot + multi-modality)
+
+**The pivot:** validation proved MedGemma is a *describer, not a detector* (localization
+recall 0.37 endoscopy / 0.00 CT). So a dedicated object DETECTOR becomes the Localizer;
+MedGemma stays only as the Reporter; SAM2 + the pipeline are unchanged. New backend
+`"detector+medsam"` (`anotmed/backends/detector.py`, `DetectorLocalizer`) — the
+box→Detection conversion is pure/CPU-tested by injecting a fake predictor; ultralytics
+is a lazy import so `.venv` stays torch-free. Modality chosen: **dental panoramic X-ray**.
+
+**Multi-modality architecture (Fable-planned, implemented):** `anotmed/modalities.py` —
+`ModalityProfile` registry (`ANOTMED_MODALITY` selects one). Config precedence is now
+**explicit env > profile > default** (`_envp`). Per-modality **floors** (`Floors.load(modality=)`
++ `eval.run --modality`; `floors.yaml modalities:` section) — this is what makes the dental
+gate runnable (DENTEX is box-only → segmentation not gated). `eval/datasets.load_coco_boxes`
+loads detection-only sets. Deferred (not needed for dental milestone-1): windowing-at-ingest
+(`resolve_window`) and detector label-maps.
+
+**Target-modality shortlist (Fable, ≤30 GB footprint rule):**
+1. **VinDr-CXR chest X-ray** ← recommended next; 1024px PNG repack ~4 GB, radiologist boxes,
+   non-commercial DUA; reuses the box-only path. (Risk: MONOCHROME1 inversion not handled in
+   `io_dicom.dataset_to_array_meta` — one-line fix when we add it.)
+2. CBIS-DDSM mammography (Kaggle JPEG ~6 GB, **CC-BY commercial-OK**, boxes+masks → first real
+   dental-style Dice floor). 3. Kvasir (have it). 4. IDRiD retinal (eval-only, tiny). 5. CT
+   nodules (3D, deferred). 6. dermoscopy (skip — classification, not detection).
+
+**License reality:** DENTEX is CC-BY-NC-SA + ultralytics AGPL → the dental detector weights are
+**research-only**. The *architecture* is clean; commercial needs a permissive dataset (CBIS-DDSM)
++ detector (RT-DETR/torchvision). The `DetectorLocalizer` seam (needs only `.predict()` →
+xyxy/conf/cls) makes that swap contained.
+
+**In progress:** training a YOLOv8n tooth detector on DENTEX (download finishing), then measure
+its localization recall vs MedGemma's 0.000/0.370 via `eval.run --modality dental`.
+
 ## Owner-gated remainder — what only your hardware/data/decisions can close
 
 Everything below needs something I cannot supply in a CPU sandbox. The code paths
