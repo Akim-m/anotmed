@@ -81,6 +81,33 @@ Detections. Box quality on the synthetic phantom is poor/degenerate (whole-image
 sometimes duplicate) — expected on non-anatomy; **this is precisely what the
 Phase 3b safety-gate run on real labeled data is for.** Phase 1 🟡 → ✅ live.
 
+## Session log — 2026-07-20 (real-data validation + the modality finding)
+
+Ran the safety gate on **real medical data** (Kvasir-SEG, 1000 colonoscopy polyps
++ masks + boxes; loader layout via `eval/datasets.load_dir`). Two honest misses,
+both tracing to the **wrong modality**:
+
+- **Segmentation** (GT-box-prompted, 200 cases / 239 lesions):
+  base SAM2.1-tiny **0.880 / 0.500** Dice mean/p10 · small 0.858 / 0.333 ·
+  **MedSAM2 (medical) 0.824 / 0.222** — the medical fine-tune is **worse** on
+  endoscopy (−0.056 Dice, −0.278 p10 at matched tiny architecture).
+- **Localization** (MedGemma, 50 cases): recall@0.3 **0.370**, @0.5 0.100.
+
+**Finding:** MedSAM2's checkpoints (`CTLesion`, `MRI_LiverLesion`, `US_Heart`) are
+**radiology**-trained; colonoscopy RGB is out-of-domain, so the fine-tune *narrowed*
+base SAM2's broad capability. Both misses point the same way — **the lever is the
+modality, not the checkpoint.** Also: even the best model's p10 (0.500) misses the
+0.70 floor on polyps — a likely modality-inherent tail. The two-tier floor (mean +
+p10) earned its keep by exposing it.
+
+**In progress:** radiology validation on **MSD Task06 Lung CT** (in-domain for both
+MedSAM2 and MedGemma) to test the modality hypothesis — base SAM2 vs
+`MedSAM2_CTLesion`, and MedGemma localization on CT.
+
+Tooling used (repo): `eval/datasets.load_dir` (real sets), `eval/run` split into
+`segmentation_metrics`/`localization_metrics` (one model at a time, memory-safe).
+Checkpoints live in `/root/sam2_checkpoints/` (not in the repo).
+
 ## Owner-gated remainder — what only your hardware/data/decisions can close
 
 Everything below needs something I cannot supply in a CPU sandbox. The code paths
