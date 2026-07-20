@@ -31,7 +31,7 @@ safety gate on a labeled set in your modality, and decide the modality. See the
 | Pipeline (localize→segment→measure→report) | complete |
 | Stub backend (Otsu + connected components) | complete — **not clinical**, exercises plumbing/tests |
 | FastAPI service + review UI | complete; async submit+poll + uniform `{error,message}` errors |
-| MedGemma via vLLM (`backends/vllm_medgemma.py`) | **code-complete + tested (mock + live-HTTP)**; needs a live vLLM/GPU run (🟡) |
+| MedGemma via vLLM (`backends/vllm_medgemma.py`) | **LIVE on the RTX 4060** (FP8, vLLM 0.23) — describes images correctly, emits valid guided JSON, driven by `VllmLocalizer` end-to-end |
 | MedGemma in-process (`backends/medgemma.py`) | legacy fallback; **delete after the vLLM live run passes** |
 | MedSAM-2 adapter (`backends/medsam.py`) | **hardened + `segment()` tested via injected predictor**; needs your checkpoint to run (🟡) |
 | Safety gate (`eval/`) | **complete on stub+synthetic**; correctly refuses the stub. Real run needs a labeled set (P3b) |
@@ -40,14 +40,33 @@ safety gate on a labeled set in your modality, and decide the modality. See the
 | DICOM-SEG export | **complete** — highdicom, accepted-only, references the de-identified source |
 | 3D volumes | not implemented — `slice_index` plumbed; gated on the modality decision (P6) |
 
+## Session log — 2026-07-20 (MedGemma running LIVE on the GPU)
+
+Turns out this box HAS the GPU (RTX 4060, 8 GiB) and MedGemma-4b-it was already
+cached (8.1 GiB). Stood up **vLLM 0.23 serving MedGemma with FP8** and drove it
+through anotmed's real backend. What it took (all captured in `serve_vllm.sh`):
+
+- **FP8, not bf16** — bf16 4B (~8.5 GiB) won't fit 8 GiB; FP8 (~4.5 GiB) does.
+- **`HF_HUB_OFFLINE=1` + `--chat-template <snapshot>/chat_template.jinja`** — the
+  repo is gated and the cache lacks `chat_template.json` (only `.jinja`), so an
+  online boot 401s. Offline + the local template fixes it, no token needed.
+- **`--gpu-memory-utilization` sized to free VRAM** (0.85 here) after killing
+  stragglers; `--enforce-eager`, `--max-num-seqs 1`, `--max-model-len 2048`.
+
+Result: MedGemma correctly described a test image ("two bright circular objects…
+a test phantom"), and `VllmLocalizer.propose` parsed its guided JSON into
+Detections. Box quality on the synthetic phantom is poor/degenerate (whole-image,
+sometimes duplicate) — expected on non-anatomy; **this is precisely what the
+Phase 3b safety-gate run on real labeled data is for.** Phase 1 🟡 → ✅ live.
+
 ## Owner-gated remainder — what only your hardware/data/decisions can close
 
 Everything below needs something I cannot supply in a CPU sandbox. The code paths
 that lead into each are built and CPU-tested; these are the live/decision steps.
 
-1. **Run MedGemma on the GPU (P1 🟡 → P2).** On the WSL/GPU box:
-   `scripts/check_gpu.sh` → `scripts/serve_vllm.sh` → `ANOTMED_BACKEND=vllm`. Confirm
-   the boxes look right on one image; align the prompt if MedGemma 1.5 diverges.
+1. ~~**Run MedGemma on the GPU (P1 🟡).**~~ **DONE 2026-07-20** — live on the RTX
+   4060 via `scripts/serve_vllm.sh` (FP8, offline). Remaining P2 work is the
+   *segmenter*: MedSAM-2 on real weights coexisting with vLLM in the VRAM budget.
 2. **Point MedSAM-2 at real weights (P2).** Set `ANOTMED_SAM_CHECKPOINT`/`_CONFIG`
    (checkpoint choice is modality-adjacent — see §4). Then delete `medgemma.py`.
 3. **Validate on real data (P3b) — the safety requirement.** Wire
