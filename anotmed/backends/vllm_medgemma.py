@@ -120,7 +120,7 @@ def _detections_from_findings(fl: FindingList, rows: int, cols: int) -> list[Det
 
 class VllmLocalizer:
     def __init__(self, client: _VllmClient, cfg: Config):
-        self._client = client
+        self.client = client
         self.cfg = cfg
         self.max_findings = cfg.max_findings
         self.name = f"vllm-localizer:{cfg.medgemma_model}"
@@ -128,7 +128,7 @@ class VllmLocalizer:
     def propose(self, image: np.ndarray, meta: ImageMeta) -> list[Detection]:
         data_url = _data_url(image_png(image, meta))
         schema = guided_schema(self.max_findings) if self.cfg.guided_json else None
-        text = self._client.chat(data_url, _LOCALIZE_PROMPT, guided_schema=schema)
+        text = self.client.chat(data_url, _LOCALIZE_PROMPT, guided_schema=schema)
         return self._parse(text or "", meta.rows, meta.cols)[: self.max_findings]
 
     def _parse(self, text: str, rows: int, cols: int) -> list[Detection]:
@@ -146,7 +146,7 @@ class VllmLocalizer:
 
 class VllmReporter:
     def __init__(self, client: _VllmClient, cfg: Config):
-        self._client = client
+        self.client = client
         self.cfg = cfg
         self.name = f"vllm-reporter:{cfg.medgemma_model}"
 
@@ -162,7 +162,7 @@ class VllmReporter:
         ).clamp(w, h)
         rs, cs = b.as_slice(w, h)
         data_url = _data_url(image_png(image[rs, cs], meta))
-        text = self._client.chat(
+        text = self.client.chat(
             data_url, _REPORT_PROMPT.format(label=det.label), max_tokens=160
         ).strip()
         return f"{text}\n\n[AI-generated draft — radiologist must verify.]"

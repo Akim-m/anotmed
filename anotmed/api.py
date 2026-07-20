@@ -8,11 +8,14 @@ human-in-the-loop gate cannot be bypassed via the API.
 
 from __future__ import annotations
 
+import logging
 import tempfile
+from http import HTTPStatus
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .backends import build_backend
 from .config import load_config
@@ -21,7 +24,34 @@ from .pipeline import Pipeline
 from .schema import BBox, ReviewStatus
 from .store import Store
 
+log = logging.getLogger("anotmed.api")
+
 app = FastAPI(title="anotmed", version="0.1.0")
+
+
+def _error_slug(code: int) -> str:
+    try:
+        return HTTPStatus(code).phrase.lower().replace(" ", "_")
+    except ValueError:
+        return "error"
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Uniform {error, message} envelope instead of FastAPI's default {detail}."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": _error_slug(exc.status_code), "message": str(exc.detail)},
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    log.exception("unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_error", "message": str(exc)},
+    )
 
 _cfg = load_config()
 _store = Store(_cfg.storage_dir)

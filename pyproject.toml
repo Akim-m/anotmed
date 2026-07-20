@@ -16,13 +16,16 @@ dependencies = [
   "uvicorn>=0.27",
   "Pillow>=10.0",
   "python-multipart>=0.0.9",
+  "httpx>=0.27",  # thin client to the vLLM OpenAI server (backends/vllm_medgemma.py)
 ]
 
 [project.optional-dependencies]
 # Real models (GPU). MedSAM-2/SAM2 itself installs from git — see README.
+# The vLLM MedGemma path needs no torch in the app — it talks HTTP to a separate
+# vLLM server (scripts/serve_vllm.sh); only the in-process MedSAM-2 segmenter does.
 models = ["torch>=2.3", "transformers>=4.44", "accelerate>=0.30"]
 seg = ["highdicom>=0.22"]
-dev = ["pytest>=8.0", "httpx>=0.27"]
+dev = ["pytest>=8.0"]
 
 [project.scripts]
 anotmed-serve = "anotmed.api:main"

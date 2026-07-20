@@ -7,7 +7,7 @@ real backend is requested, so the stub path stays dependency-light.
 
 from __future__ import annotations
 
-from ..config import BACKEND_MODELS, BACKEND_STUB, Config
+from ..config import BACKEND_MODELS, BACKEND_STUB, BACKEND_VLLM, Config
 from .base import Backend, Detection, Localizer, Reporter, Segmenter
 
 __all__ = ["Backend", "Detection", "Localizer", "Reporter", "Segmenter", "build_backend"]
@@ -33,6 +33,20 @@ def build_backend(cfg: Config) -> Backend:
             segmenter=medsam.build(cfg),
             reporter=reporter,
             name=BACKEND_MODELS,
+        )
+
+    if cfg.backend == BACKEND_VLLM:
+        from . import medsam, vllm_medgemma
+
+        localizer, reporter = vllm_medgemma.build(cfg)
+        # Gate on vLLM readiness BEFORE loading the segmenter: a down server
+        # fails fast with an actionable message and never touches torch.
+        localizer.client.health()
+        return Backend(
+            localizer=localizer,
+            segmenter=medsam.build(cfg),
+            reporter=reporter,
+            name=BACKEND_VLLM,
         )
 
     raise ValueError(f"Unknown backend {cfg.backend!r}")
