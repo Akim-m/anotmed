@@ -25,6 +25,7 @@ dependencies = [
 # vLLM server (scripts/serve_vllm.sh); only the in-process MedSAM-2 segmenter does.
 models = ["torch>=2.3", "transformers>=4.44", "accelerate>=0.30"]
 seg = ["highdicom>=0.22"]
+eval = ["pyyaml>=6.0"]  # floors.yaml for the validation harness (tier-2, manual)
 dev = ["pytest>=8.0"]
 
 [project.scripts]

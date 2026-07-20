@@ -1,0 +1,16 @@
+# Absolute safety floors for the validation gate (eval/run.py --tier absolute).
+#
+# THESE NUMBERS ARE A CLINICAL JUDGMENT THE OWNER MUST SIGN (PLAN.md §4).
+# They are suggested starting points to negotiate from, NOT clinically blessed,
+# and NOT met by the non-clinical stub backend. Adjust to your modality and the
+# risk tolerance of your workflow before any real use.
+
+segmentation:
+  dice_mean: 0.85      # GT-box-prompted mean Dice over the labeled set
+  dice_p10: 0.70       # 10th-percentile Dice — the worst cases must not be terrible
+
+localization:
+  recall_iou30: 0.80   # fraction of real lesions the localizer boxes (IoU >= 0.3)
+
+format:
+  compliance: 0.98     # fraction of images that yield a usable HxW bool mask
