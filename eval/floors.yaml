@@ -23,3 +23,8 @@ modalities:
     # the detector's localization is the floor that matters here.
     segmentation: {dice_mean: 0.0, dice_p10: 0.0}
     localization: {recall_iou30: 0.85}   # a good tooth detector should clear this easily
+  dental-path:
+    # Pathology (caries/lesions) is subtle and sparse -> a lower, PROVISIONAL floor,
+    # to be signed from measured reality (Fable: expect ~0.50-0.70). Box-only.
+    segmentation: {dice_mean: 0.0, dice_p10: 0.0}
+    localization: {recall_iou30: 0.50}

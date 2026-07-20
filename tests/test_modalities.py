@@ -32,6 +32,11 @@ def test_dental_profile_carries_its_facts_and_license_flag():
     assert "research" in p.notes.lower() or "NC" in p.notes  # NC/AGPL flag present
 
 
+def test_dental_pathology_profile_exists_with_its_own_floor():
+    p = get_profile("dental-path")
+    assert p.floors_key == "dental-path" and p.max_findings == 20
+
+
 def test_unknown_profile_raises_listing_valid_names():
     with pytest.raises(ValueError) as exc:
         get_profile("does-not-exist")

@@ -65,6 +65,16 @@ PROFILES: dict[str, ModalityProfile] = {
                "the trained detector weights are RESEARCH-ONLY. Cite Hamamci et al., "
                "arXiv:2305.19112 (DENTEX, MICCAI 2023)."),
     ),
+    "dental-path": ModalityProfile(
+        name="dental-path",
+        dicom_modality="PX",
+        detector_conf=0.25,
+        detector_imgsz=1024,
+        max_findings=20,                              # pathologies are ~5/image, not ~32
+        window=WindowSpec(mode="minmax"),
+        floors_key="dental-path",                     # a harder, separately-signed floor
+        notes="DENTEX disease subset (caries/lesion/impacted), CC-BY-NC-SA — research-only.",
+    ),
 }
 
 
