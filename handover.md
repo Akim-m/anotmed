@@ -100,9 +100,26 @@ modality, not the checkpoint.** Also: even the best model's p10 (0.500) misses t
 0.70 floor on polyps — a likely modality-inherent tail. The two-tier floor (mean +
 p10) earned its keep by exposing it.
 
-**In progress:** radiology validation on **MSD Task06 Lung CT** (in-domain for both
-MedSAM2 and MedGemma) to test the modality hypothesis — base SAM2 vs
-`MedSAM2_CTLesion`, and MedGemma localization on CT.
+**Radiology validation (MSD Task06 Lung CT, 50 patient slices) — the modality
+hypothesis DID NOT hold, and revealed the real bottleneck:**
+
+- **Localization (MedGemma on CT): recall@0.3 = 0.000** — *worse* than endoscopy
+  (0.370). MedGemma points at "lung" (the organ) or nothing; it does not localize
+  the small tumor. **MedGemma-4b is a describer, not a detector** — it cannot
+  precisely box lesions, and small subtle ones (lung nodules) defeat it entirely.
+- **Segmentation (GT-box-prompted, CT): base SAM2.1-tiny 0.738 / 0.411** — *worse*
+  than on polyps (0.880/0.500); irregular/low-contrast lung tumors are harder to
+  box-segment than rounded polyps. `MedSAM2_CTLesion` did NOT help as a drop-in
+  (0.698/0.000 at 1024; its native 512 config needs the full MedSAM2 pipeline, not
+  a one-line image_size edit — a proper integration, not a swap).
+
+**The real finding (across both modalities): the LOCALIZER is anotmed's bottleneck.**
+MedGemma describes images well but localizes lesions poorly everywhere (0.370
+endoscopy, 0.000 CT). The fix is not a checkpoint or a modality — it's **fine-tuning
+MedGemma for detection (P7)** or pairing it with a **dedicated lesion detector**.
+Segmentation: base SAM2 is the robust default; MedSAM2 is a research-integration, not
+a drop-in. The two-tier floor (mean + p10) exposed every tail. **The gate did its job:
+it turned "should be good" into measured, actionable truth.**
 
 Tooling used (repo): `eval/datasets.load_dir` (real sets), `eval/run` split into
 `segmentation_metrics`/`localization_metrics` (one model at a time, memory-safe).

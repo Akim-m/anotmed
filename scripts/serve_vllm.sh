@@ -25,17 +25,21 @@ QUANTIZATION="${QUANTIZATION-fp8}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-2048}"
 MODE="${MODE:-native}"
 
-# --- auto gpu-memory-utilization from free VRAM (leave ~0.6 GiB headroom) -----
+# --- auto gpu-memory-utilization: HARD RULE — always leave >= 1 GiB VRAM free ---
+# Reserve 1100 MiB headroom and cap util at 0.80 so the card is never filled
+# (measured: 0.80 -> ~1.4 GiB free on the 8 GiB RTX 4060; 0.85 left only ~0.8 GiB).
 if [ -z "${GPU_MEM_UTIL:-}" ]; then
   read -r free_mib total_mib < <(nvidia-smi --query-gpu=memory.free,memory.total \
       --format=csv,noheader,nounits 2>/dev/null | head -1 | tr ',' ' ') || true
   if [ -n "${total_mib:-}" ] && [ "${total_mib:-0}" -gt 0 ]; then
     GPU_MEM_UTIL=$(awk -v f="$free_mib" -v t="$total_mib" \
-      'BEGIN{u=(f-600)/t; if(u>0.92)u=0.92; if(u<0.30)u=0.30; printf "%.2f", u}')
+      'BEGIN{u=(f-1100)/t; if(u>0.80)u=0.80; if(u<0.30)u=0.30; printf "%.2f", u}')
   else
-    GPU_MEM_UTIL=0.85
+    GPU_MEM_UTIL=0.80
   fi
 fi
+# Even an explicit GPU_MEM_UTIL is capped at 0.80 to honor the >=1 GiB-free rule.
+GPU_MEM_UTIL=$(awk -v u="$GPU_MEM_UTIL" 'BEGIN{if(u>0.80)u=0.80; printf "%.2f", u}')
 
 # --- gated-but-cached: run offline + supply the cached chat template ----------
 # HF cache dir uses '--' between org and model: models--google--medgemma-4b-it
