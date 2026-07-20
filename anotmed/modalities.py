@@ -40,6 +40,7 @@ class ModalityProfile:
     detector_weights: str = ""                        # "" = env must provide
     detector_conf: float = 0.25
     detector_imgsz: int = 1024
+    max_findings: int = 8                             # per-modality: ~8 lesions vs ~32 teeth
     window: WindowSpec = field(default_factory=WindowSpec)
     label_map: Mapping[str, str] = field(default_factory=dict)  # detector class NAME -> finding name
     sam_checkpoint: str = ""                          # "" = use the global ANOTMED_SAM_*
@@ -56,6 +57,7 @@ PROFILES: dict[str, ModalityProfile] = {
         dicom_modality="PX",                          # panoramic X-ray
         detector_conf=0.25,
         detector_imgsz=1024,
+        max_findings=40,                              # a panoramic has up to ~32 teeth
         window=WindowSpec(mode="minmax"),
         floors_key="dental",
         notes=("DENTEX is CC-BY-NC-SA-4.0 (non-commercial) and ultralytics is AGPL-3.0 — "

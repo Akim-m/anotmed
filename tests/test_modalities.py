@@ -99,3 +99,13 @@ def test_no_modality_is_todays_behavior(monkeypatch):
 
     cfg = Config()
     assert cfg.detector_conf == 0.25 and cfg.detector_imgsz == 1024
+
+
+def test_dental_profile_raises_max_findings_for_teeth(monkeypatch):
+    # ~32 teeth per panoramic — the default 8 would cap recall; the profile lifts it.
+    assert get_profile("dental").max_findings == 40
+    _clear(monkeypatch, "ANOTMED_MAX_FINDINGS")
+    monkeypatch.setenv("ANOTMED_MODALITY", "dental")
+    from anotmed.config import Config
+
+    assert Config().max_findings == 40
