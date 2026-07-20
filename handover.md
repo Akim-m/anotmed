@@ -191,7 +191,10 @@ Working through these in order; commits land per task. Live status:
 - [x] **4. Docs — refresh README + ARCHITECTURE + artifact**. Done — README gains a "Detector
       backend & modalities" + "Memory rule" section; ARCHITECTURE roadmap + the rendered artifact
       (same URL) show the detector pivot, multi-modality, and real-data validation.
-- [ ] 5. Cleanup — reusable dental scripts; assess deleting legacy `backends/medgemma.py` (vLLM live E2E has passed).
+- [x] **5. Cleanup**. Done — added `scripts/eval_detector.py` (reusable per-modality detector
+      localization eval; smoke-tested → dental 0.994). Assessed legacy `backends/medgemma.py`:
+      **kept** as an optional in-process fallback (doesn't fit 8 GB bf16, but valid on larger
+      GPUs; parsing shared via `parsing.py`) — README status clarified, not deleted.
 - [ ] 6. Dental milestone-2 — 4-class pathology detector (disease subset already downloaded); sign a pathology floor.
 - [ ] 7. Next modality — VinDr-CXR chest X-ray (MONOCHROME1 fix + `chest-xr` profile + loader + train + gate).
 

@@ -116,7 +116,9 @@ export ANOTMED_SAM_CONFIG=/path/to/sam2_hiera_s.yaml
 anotmed-serve
 ```
 
-Kept as a fallback; slated for removal once the vLLM live run is confirmed.
+Kept as an **optional in-process fallback** for GPUs large enough to fit bf16
+MedGemma (~8.5 GB). On an 8 GB card, use the vLLM path (FP8) — the in-process
+path won't fit. The vLLM path is now the confirmed default.
 </details>
 
 ## Detector backend & modalities
