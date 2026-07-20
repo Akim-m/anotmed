@@ -82,26 +82,42 @@ suggestions with measurements. Accept one, then **Export accepted (COCO)**.
 
 ## Enabling the real models (GPU)
 
-```bash
-pip install -e ".[models]"
+**Recommended: MedGemma behind vLLM** (the app stays a thin HTTP client — real
+inference is on the GPU, the app imports no torch for the VLM path):
 
-# MedSAM-2 / SAM2 install from git (not PyPI); follow their repo, then set:
+```bash
+scripts/check_gpu.sh                 # preflight: GPU visible, VRAM, ckpt
+scripts/serve_vllm.sh                # start the vLLM MedGemma server (GPU)
+
+pip install -e ".[seg]"              # highdicom for DICOM-SEG (+ pyyaml via [eval])
+export ANOTMED_BACKEND=vllm
+export ANOTMED_SAM_CHECKPOINT=/path/to/medsam2.pt   # MedSAM-2 (in-process torch)
+export ANOTMED_SAM_CONFIG=/path/to/sam2_hiera_s.yaml
+export ANOTMED_SEG_DEVICE=cuda       # or cpu, to free VRAM for vLLM if tight
+anotmed-serve
+```
+
+Confirm once on your box (these paths are code-complete + CPU-tested, but not yet
+run against real weights here):
+
+- **vLLM path** — upload one image, check the boxes look right. If MedGemma 1.5
+  diverges from the guided schema, guided decoding still constrains it; the
+  free-text fallback (`backends/parsing.py`) catches the rest.
+- **`backends/medsam.py::_load`** uses the standard SAM2 image-predictor API. If
+  your MedSAM-2 build names its predictor differently, adjust that one function.
+
+<details><summary>Legacy: MedGemma in-process (transformers)</summary>
+
+```bash
+pip install -e ".[models]"           # torch + transformers in the app process
 export ANOTMED_BACKEND=medgemma+medsam
-export ANOTMED_MEDGEMMA_MODEL=google/medgemma-4b-it
 export ANOTMED_SAM_CHECKPOINT=/path/to/medsam2.pt
 export ANOTMED_SAM_CONFIG=/path/to/sam2_hiera_s.yaml
 anotmed-serve
 ```
 
-Two integration points to confirm once, with weights loaded (they are
-written-to-spec, not yet run against real MedGemma 1.5):
-
-- **`backends/medgemma.py::_parse_boxes`** expects the Gemma-family `box_2d`
-  JSON format (normalized 0–1000). If the released model card differs, adjust
-  the prompt/parser there. Sanity-check by running one image through
-  `MedGemmaLocalizer.propose` and printing the raw output.
-- **`backends/medsam.py::_load`** uses the standard SAM2 image-predictor API. If
-  your MedSAM-2 build names its predictor differently, adjust that one function.
+Kept as a fallback; slated for removal once the vLLM live run is confirmed.
+</details>
 
 ## API
 

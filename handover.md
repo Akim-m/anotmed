@@ -10,12 +10,16 @@ intended-use limits.
 A medical-image **annotation accelerator**: MedGemma proposes boxes + draft text,
 MedSAM-2 turns each box into a pixel mask, a pure-numpy engine computes the
 millimetre measurements, and a radiologist accepts/edits/rejects every suggestion
-in a web UI. Nothing exports until a human accepts it. The whole thing runs on
-CPU today via a **stub backend**; the real models plug in behind two clearly
-marked adapters for a GPU/WSL run. **The CPU core is now verified green** — the
-full test suite passes and the upload→review→export loop was exercised against
-the live HTTP server (see Session log). The real-model adapters remain
-written-to-spec, not yet run against weights; that is where the work resumes.
+in a web UI. Nothing exports until a human accepts it.
+
+**Status: all CPU/solo-buildable work is done and verified green (88 tests + a
+full live-HTTP smoke).** MedGemma now runs behind a **vLLM server** (the app is a
+thin client — real inference is GPU, app + tests are GPU-free); there is an
+**async submit+poll** job model, an **absolute Dice/IoU safety gate** (`eval/`),
+and real **DICOM-SEG + exact-RLE COCO** export. What remains is **irreducibly the
+owner's**: run the models on your WSL/GPU box against real weights, validate the
+safety gate on a labeled set in your modality, and decide the modality. See the
+"Owner-gated remainder" section and PLAN.md §4.
 
 ## Current state — what's real vs. not
 
@@ -26,12 +30,44 @@ written-to-spec, not yet run against weights; that is where the work resumes.
 | DICOM load / window / de-id / COCO export | complete |
 | Pipeline (localize→segment→measure→report) | complete |
 | Stub backend (Otsu + connected components) | complete — **not clinical**, exercises plumbing/tests |
-| FastAPI service + review UI | complete |
-| MedGemma adapter (`backends/medgemma.py`) | **written-to-spec, not run** — needs 1 alignment pass |
-| MedSAM-2 adapter (`backends/medsam.py`) | **written-to-spec, not run** — needs your checkpoint |
+| FastAPI service + review UI | complete; async submit+poll + uniform `{error,message}` errors |
+| MedGemma via vLLM (`backends/vllm_medgemma.py`) | **code-complete + tested (mock + live-HTTP)**; needs a live vLLM/GPU run (🟡) |
+| MedGemma in-process (`backends/medgemma.py`) | legacy fallback; **delete after the vLLM live run passes** |
+| MedSAM-2 adapter (`backends/medsam.py`) | **hardened + `segment()` tested via injected predictor**; needs your checkpoint to run (🟡) |
+| Safety gate (`eval/`) | **complete on stub+synthetic**; correctly refuses the stub. Real run needs a labeled set (P3b) |
+| Async jobs (`jobs.py`) | complete — one worker = GPU serialization point |
 | COCO export | complete — now emits exact-mask RLE (not a hull approximation) |
 | DICOM-SEG export | **complete** — highdicom, accepted-only, references the de-identified source |
-| 3D volumes | not implemented — per-slice scaffolding only (`slice_index` exists) |
+| 3D volumes | not implemented — `slice_index` plumbed; gated on the modality decision (P6) |
+
+## Owner-gated remainder — what only your hardware/data/decisions can close
+
+Everything below needs something I cannot supply in a CPU sandbox. The code paths
+that lead into each are built and CPU-tested; these are the live/decision steps.
+
+1. **Run MedGemma on the GPU (P1 🟡 → P2).** On the WSL/GPU box:
+   `scripts/check_gpu.sh` → `scripts/serve_vllm.sh` → `ANOTMED_BACKEND=vllm`. Confirm
+   the boxes look right on one image; align the prompt if MedGemma 1.5 diverges.
+2. **Point MedSAM-2 at real weights (P2).** Set `ANOTMED_SAM_CHECKPOINT`/`_CONFIG`
+   (checkpoint choice is modality-adjacent — see §4). Then delete `medgemma.py`.
+3. **Validate on real data (P3b) — the safety requirement.** Wire
+   `eval/datasets.load_dir()` to a labeled held-out set (30–50 curated cases is a
+   meaningful floor check) and run `python -m eval.run --tier absolute`. Sign the
+   floors in `eval/floors.yaml` first.
+4. **Pick the modality (P6).** Drives the checkpoint, windowing, validation set,
+   and whether 3D volumes are needed.
+5. **(Conditional) QLoRA finetune (P7)** — only if P3b shows a Dice gap.
+6. Live PACS-viewer check of an exported DICOM-SEG over the source series.
+
+## Session log — 2026-07-20 (Phase 2 code: seg-device, testable segmenter, preflight)
+
+Finished all of Phase 2 except the live checkpoint run. `ANOTMED_SEG_DEVICE`
+(CPU-segmenter fallback to free VRAM for vLLM); `MedSAM2Segmenter` takes an
+injectable predictor so `segment()` is now tested end-to-end on CPU (+4 tests);
+`scripts/check_gpu.sh` preflight; a **real-HTTP** vLLM integration test (stand-up
+server, drives the localizer over a socket). Suite 82 → 88. Also ran a full
+live-server smoke over real HTTP: upload → PNGs → gate → COCO(RLE) → DICOM-SEG,
+all healthy.
 
 ## Session log — 2026-07-20 (Phase 5: DICOM-SEG export + COCO-RLE, CPU)
 
@@ -248,17 +284,19 @@ Both are the only places you should need to touch to go from stub to real:
 
 ## Backlog — ranked
 
-1. ~~Run `pytest -q` in WSL — confirm the CPU core is green.~~ **DONE 2026-07-19**
-   (11/11 green + live-server loop verified; see Session log). Real work resumes at #2.
-2. **Align the MedGemma adapter** to the real model card; verify on 1 image.
-3. **Align the MedSAM-2 loader** to your checkpoint; verify box→mask on 1 image.
-4. **Validate** Dice/IoU + localization on a labeled set from *your* modalities
-   (SAFETY requirement — do before any real use).
-5. ~~**Wire DICOM-SEG export**~~ **DONE 2026-07-20** (Phase 5) — retains a
-   de-identified source, builds the SEG via highdicom, accepted-only. Remaining:
-   open the exported SEG in a real PACS viewer over the source series (owner).
-6. **Confirm target modality**; tune default windowing; add 3D volume support if
-   needed (loop the pipeline over slices — `slice_index` is already plumbed).
+The whole CPU/solo build-out is done (see the session logs and the "Owner-gated
+remainder" section near the top). What's left is the owner-gated tail:
+
+1. ~~Run `pytest -q`; confirm the CPU core is green.~~ **DONE 2026-07-19** (now 88 green).
+2. ~~Harden the MedGemma/MedSAM-2 adapters; build the vLLM MedGemma backend.~~
+   **DONE 2026-07-20** (Phases 0–1). Remaining: the 🟡 live vLLM/GPU run.
+3. ~~Make `MedSAM2Segmenter.segment()` testable; seg-device knob; preflight.~~
+   **DONE 2026-07-20** (Phase 2 code). Remaining: point at your real checkpoint.
+4. **Validate** Dice/IoU on a labeled set from *your* modality — harness is built
+   (`eval/`, Phase 3a); this is the real run (P3b). **SAFETY requirement.**
+5. ~~**Wire DICOM-SEG export**~~ **DONE 2026-07-20** (Phase 5). Remaining: open the
+   exported SEG in a real PACS viewer over the source series.
+6. **Confirm target modality**; tune windowing; add 3D if needed (P6, gated).
 7. **Hardening if scaling** beyond one workstation: auth, multi-user, a real DB.
 
 ## Open questions for the owner
