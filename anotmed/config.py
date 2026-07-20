@@ -48,6 +48,12 @@ class Config:
     max_findings: int = field(default_factory=lambda: int(os.getenv("ANOTMED_MAX_FINDINGS", "8")))
     min_score: float = field(default_factory=lambda: float(os.getenv("ANOTMED_MIN_SCORE", "0.0")))
 
+    # Run the pipeline inline (True) or on the async worker (False). Defaults to
+    # inline for the stub (fast tests/CI) and async for real backends, where
+    # tens-of-seconds inference must not block the browser. ANOTMED_SYNC overrides.
+    sync: bool = field(default_factory=lambda: _env_bool(
+        "ANOTMED_SYNC", os.getenv("ANOTMED_BACKEND", BACKEND_STUB) == BACKEND_STUB))
+
 
 def load_config() -> Config:
     cfg = Config()

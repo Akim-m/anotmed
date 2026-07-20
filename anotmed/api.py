@@ -20,6 +20,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .backends import build_backend
 from .config import load_config
 from .io_dicom import annotations_to_coco, image_png, load_dicom, mask_overlay_png
+from .jobs import JobRegistry
 from .pipeline import Pipeline
 from .schema import BBox, ReviewStatus
 from .store import Store
@@ -56,6 +57,7 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
 _cfg = load_config()
 _store = Store(_cfg.storage_dir)
 _backend = None  # built lazily so importing this module never loads model weights
+_jobs = JobRegistry()
 
 
 def _get_pipeline() -> Pipeline:
@@ -86,9 +88,31 @@ async def create_study(file: UploadFile = File(...)):
     # Only the pixel array and non-identifying ImageMeta are persisted; PHI tags
     # are never written to disk.
     study = _store.create_study(arr, meta, source_name=file.filename or "upload.dcm")
+
+    if not _cfg.sync:
+        # Real inference is slow: persist now, run on the worker, let the client
+        # poll GET /api/jobs/{id}. Annotations still land as PENDING via the same
+        # Store writes, so the export gate is unaffected.
+        job = _jobs.submit(study.id, lambda s=study: _get_pipeline().run(s))
+        return JSONResponse(
+            status_code=202,
+            content={"job_id": job.id, "study_id": study.id, "status": job.status},
+        )
+
     anns = _get_pipeline().run(study)
     return {"study": study.model_dump(mode="json"),
             "annotations": [a.model_dump(mode="json") for a in anns]}
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job(job_id: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "job not found")
+    body = {"job_id": job.id, "study_id": job.study_id, "status": job.status}
+    if job.status == "failed":
+        body["error"] = job.error
+    return body
 
 
 @app.get("/api/studies")

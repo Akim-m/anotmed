@@ -71,8 +71,19 @@ let STATE = { sid: null, meta: null, anns: [], selected: null, drawing: null };
 
 async function j(url, opts) {
   const r = await fetch(url, opts);
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  if (!r.ok) {
+    const b = await r.json().catch(() => ({}));
+    throw new Error(b.message || b.detail || r.statusText);
+  }
   return r.json();
+}
+
+async function pollJob(jobId) {
+  for (;;) {
+    const jr = await j('/api/jobs/' + jobId);
+    if (jr.status === 'completed' || jr.status === 'failed') return jr.status;
+    await new Promise(res => setTimeout(res, 500));
+  }
 }
 
 async function boot() {
@@ -91,12 +102,37 @@ async function refreshStudies() {
 async function upload() {
   const f = document.getElementById('file').files[0];
   if (!f) { alert('Choose a DICOM file first.'); return; }
+  const btn = document.querySelector('button.primary');
+  const orig = btn ? btn.textContent : '';
   const fd = new FormData();
   fd.append('file', f);
-  const res = await j('/api/studies', { method: 'POST', body: fd });
-  await refreshStudies();
-  document.getElementById('studies').value = res.study.id;
-  loadStudyData(res.study, res.annotations);
+  if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
+  try {
+    const r = await fetch('/api/studies', { method: 'POST', body: fd });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error(b.message || b.detail || r.statusText);
+    }
+    const res = await r.json();
+    if (res.job_id) {
+      // Async backend: the pipeline runs on the worker; poll to completion.
+      if (btn) btn.textContent = 'Analyzing…';
+      const status = await pollJob(res.job_id);
+      if (status !== 'completed') throw new Error('analysis ' + status);
+      await refreshStudies();
+      document.getElementById('studies').value = res.study_id;
+      await selectStudy(res.study_id);
+    } else {
+      // Sync backend (stub): annotations came back inline.
+      await refreshStudies();
+      document.getElementById('studies').value = res.study.id;
+      loadStudyData(res.study, res.annotations);
+    }
+  } catch (e) {
+    alert(e.message || 'upload failed');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  }
 }
 
 async function selectStudy(sid) {
@@ -214,7 +250,7 @@ document.getElementById('overlay').addEventListener('mouseup', async e => {
 async function exportCoco() {
   if (!STATE.sid) return;
   const r = await fetch(`/api/studies/${STATE.sid}/export?format=coco`, { method: 'POST' });
-  if (!r.ok) { alert((await r.json()).detail || 'export failed'); return; }
+  if (!r.ok) { const b = await r.json().catch(() => ({})); alert(b.message || b.detail || 'export failed'); return; }
   const blob = await r.blob();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
