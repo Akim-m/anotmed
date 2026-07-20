@@ -159,6 +159,25 @@ def mask_to_polygon(mask: np.ndarray) -> list[float]:
     return [float(v) for xy in hull for v in xy]
 
 
+def mask_to_rle(mask: np.ndarray) -> dict:
+    """Exact uncompressed COCO RLE {counts, size} for a boolean mask.
+
+    Column-major run lengths, alternating starting from background — the lossless
+    counterpart to `mask_to_polygon`'s convex-hull approximation. The mask is on
+    disk anyway, so COCO can carry the true contour.
+    """
+    m = np.asarray(mask, dtype=bool)
+    h, w = m.shape
+    flat = m.flatten(order="F").astype(np.uint8)
+    if flat.size == 0:
+        return {"counts": [], "size": [h, w]}
+    boundaries = np.concatenate(([0], np.flatnonzero(np.diff(flat)) + 1, [flat.size]))
+    runs = np.diff(boundaries).tolist()
+    if flat[0] == 1:  # RLE must begin with a background run
+        runs = [0] + runs
+    return {"counts": runs, "size": [h, w]}
+
+
 def annotations_to_coco(study: Study, annotations: list[Annotation],
                         masks: dict[str, np.ndarray]) -> dict:
     """Build a COCO-format dict. Caller is responsible for passing accepted-only."""
@@ -173,12 +192,13 @@ def annotations_to_coco(study: Study, annotations: list[Annotation],
     }
     for i, ann in enumerate(annotations, start=1):
         b = ann.box
-        poly = mask_to_polygon(masks[ann.id]) if ann.id in masks else []
+        # Exact-mask RLE when a mask exists; no lossy hull fallback.
+        segmentation = mask_to_rle(masks[ann.id]) if ann.id in masks else []
         coco["annotations"].append({
             "id": i, "image_id": 1, "category_id": 1, "iscrowd": 0,
             "bbox": [b.x, b.y, b.w, b.h],
             "area": ann.measurement.n_pixels if ann.measurement else b.w * b.h,
-            "segmentation": [poly] if poly else [],
+            "segmentation": segmentation,
             "anotmed": {
                 "label": ann.label,
                 "status": ann.status.value,
