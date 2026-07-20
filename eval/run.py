@@ -14,6 +14,7 @@ is isolated from localizer quality (scored separately as recall/precision).
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -66,15 +67,24 @@ class Floors:
         return v
 
     @classmethod
-    def load(cls, path: str | Path = _FLOORS_PATH) -> "Floors":
+    def load(cls, path: str | Path = _FLOORS_PATH, modality: str = "") -> "Floors":
         import yaml  # lazy: only the CLI needs it; unit tests build Floors directly
 
         d = yaml.safe_load(Path(path).read_text())
+        base = {k: (dict(v) if isinstance(v, dict) else v)
+                for k, v in d.items() if k != "modalities"}
+        if modality:
+            override = d.get("modalities", {}).get(modality)
+            if override is None:
+                print(f"warning: no floors for modality {modality!r}; using global floors")
+            else:
+                for section, vals in override.items():  # overlay per section
+                    base.setdefault(section, {}).update(vals)
         return cls(
-            dice_mean=float(d["segmentation"]["dice_mean"]),
-            dice_p10=float(d["segmentation"]["dice_p10"]),
-            recall_iou30=float(d["localization"]["recall_iou30"]),
-            format_compliance=float(d["format"]["compliance"]),
+            dice_mean=float(base["segmentation"]["dice_mean"]),
+            dice_p10=float(base["segmentation"]["dice_p10"]),
+            recall_iou30=float(base["localization"]["recall_iou30"]),
+            format_compliance=float(base["format"]["compliance"]),
         )
 
 
@@ -176,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--data", help="labeled-set dir (default: synthetic cases)")
     p.add_argument("--n", type=int, default=6, help="synthetic case count")
     p.add_argument("--floors", default=str(_FLOORS_PATH))
+    p.add_argument("--modality", default=os.getenv("ANOTMED_MODALITY", ""),
+                   help="apply per-modality floor overrides (e.g. dental)")
     p.add_argument("--determinism", action="store_true",
                    help="score twice, require identical results")
     p.add_argument("--compare", nargs=2, metavar=("BACKEND_A", "BACKEND_B"),
@@ -208,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\ndeterminism: OK (identical across two runs)")
 
     if args.tier == "absolute":
-        floors = Floors.load(args.floors)
+        floors = Floors.load(args.floors, modality=args.modality)
         violations = floors.check(report)
         if violations:
             print("\nGATE FAILED — floors missed:")

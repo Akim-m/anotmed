@@ -72,6 +72,37 @@ def test_floors_flag_low_dice_and_recall():
     assert any("recall" in v.lower() for v in violations)
 
 
+def test_floors_load_merges_a_modality_section(tmp_path):
+    y = tmp_path / "floors.yaml"
+    y.write_text(
+        "segmentation: {dice_mean: 0.85, dice_p10: 0.70}\n"
+        "localization: {recall_iou30: 0.80}\n"
+        "format: {compliance: 0.98}\n"
+        "modalities:\n"
+        "  dental:\n"
+        "    segmentation: {dice_mean: 0.0, dice_p10: 0.0}\n"
+        "    localization: {recall_iou30: 0.85}\n"
+    )
+    g = Floors.load(y)
+    assert g.dice_mean == 0.85 and g.recall_iou30 == 0.80
+
+    d = Floors.load(y, modality="dental")
+    assert d.dice_mean == 0.0 and d.dice_p10 == 0.0  # box-only: seg not gated
+    assert d.recall_iou30 == 0.85                     # dental localization floor
+    assert d.format_compliance == 0.98                # inherited from global
+
+
+def test_floors_load_unknown_modality_falls_back_to_global(tmp_path):
+    y = tmp_path / "floors.yaml"
+    y.write_text(
+        "segmentation: {dice_mean: 0.85, dice_p10: 0.70}\n"
+        "localization: {recall_iou30: 0.80}\n"
+        "format: {compliance: 0.98}\n"
+    )
+    d = Floors.load(y, modality="nope")
+    assert d.dice_mean == 0.85 and d.recall_iou30 == 0.80  # strict global baseline
+
+
 def test_corrupted_segmenter_trips_the_gate_despite_valid_format():
     # Empty masks are a *valid* shape/dtype (format compliance 1.0) but score
     # Dice ~0 against real lesions — the gate must still fail.

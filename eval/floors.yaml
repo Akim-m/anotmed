@@ -14,3 +14,12 @@ localization:
 
 format:
   compliance: 0.98     # fraction of images that yield a usable HxW bool mask
+
+# Per-modality overrides, shallow-merged over the globals above via
+# `Floors.load(modality=...)` / `eval.run --modality`. Only list what differs.
+modalities:
+  dental:
+    # DENTEX is box-only (no GT masks) -> segmentation is NOT gated on dental;
+    # the detector's localization is the floor that matters here.
+    segmentation: {dice_mean: 0.0, dice_p10: 0.0}
+    localization: {recall_iou30: 0.85}   # a good tooth detector should clear this easily
