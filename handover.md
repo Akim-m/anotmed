@@ -165,9 +165,18 @@ dentex_tooth/weights/best.pt` (research-only — DENTEX NC + ultralytics AGPL). 
 lesson folded into the profile system: global `max_findings=8` capped recall at 0.28 (a
 panoramic has ~32 teeth) — `ModalityProfile.max_findings` (dental=40) is the fix.
 
-Next candidates: milestone-2 (4-class DENTEX pathology detector — the clinical findings);
-the full dental pipeline live (detector → SAM2 mask → MedGemma report → review → export);
-or the next modality (VinDr-CXR chest X-ray, per the shortlist).
+**Full pipeline LIVE on real dental (verified).** Ran the complete product loop on a held-out
+DENTEX panoramic (29 teeth), **sequentially / memory-safe** (Phase 1 detector+SAM2 ~2 GiB →
+freed; Phase 2 MedGemma vLLM @ 0.80 util → freed; ≥1 GiB free throughout): detect → segment →
+measure → real MedGemma report → human gate → accepted-only RLE export. 8 findings, accept 3 →
+export = 3. `serve_vllm.sh` auto-capped util at 0.80 to honor the ≥1 GiB rule. (Reporting
+individual *teeth* shows why milestone-2 pathology detection is the clinically meaningful next
+step — MedGemma sometimes calls a tooth crop a "lesion". Labels read "item" — the deferred
+profile `label_map` wiring, cosmetic.)
+
+Next candidates: milestone-2 (4-class DENTEX pathology detector — the clinical findings, disease
+subset already downloaded); the deferred Part A polish (label_map, windowing-at-ingest); or the
+next modality (VinDr-CXR chest X-ray, per the shortlist).
 
 ## Owner-gated remainder — what only your hardware/data/decisions can close
 
