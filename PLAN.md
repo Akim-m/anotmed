@@ -103,13 +103,16 @@ owner confirms):
 MedGemma-4b FP8 weights (~4.5 GB) + overhead already exceed 0.60×8 GB before any KV
 cache. The real floor is **≥ ~0.70**; MedGemma-only sweet spot is **~0.85** (~7.1 GB
 used). Two models therefore do **not** co-fit comfortably (~6.9 GB, tight). Resolution
-(the memory-optimization plan): the reliable default on 8 GB is a **warm vLLM server
-that never restarts** + **`ANOTMED_SEG_DEVICE=cpu`** (SAM2 on CPU, seconds/image), and
-the app caches the SAM2 image embedding so a study encodes once, not per finding. The
-faster target is **vLLM sleep/wake** (`SLEEP_MODE=1` in `serve_vllm.sh`): between phases,
-`POST /sleep` offloads the weights to RAM (VRAM → ~0) so GPU SAM2 fits, then `POST
-/wake_up` — no 2–3 min reload. On 12–16 GB, raise the cap, run SAM2 on GPU, consider
-bf16 (still Dice-gated, Phase 3).
+(the memory-optimization plan, implemented + tested 2026-07-20): the reliable default on
+8 GB is a **warm vLLM server that never restarts** + **`ANOTMED_SEG_DEVICE=cpu`** (SAM2 on
+CPU — measured ~1.8 s/image encode), and `medsam.py` now **caches the SAM2 image embedding**
+so a study encodes once, not per finding (measured 1.8 s → 0.0 s on the 2nd finding). The
+faster target was **vLLM sleep/wake** (`SLEEP_MODE=1` in `serve_vllm.sh`: `POST /sleep`
+offloads weights to RAM, `POST /wake_up` reloads — no 2–3 min restart) — but it is a
+**NO-GO on WSL2**: CUDA Virtual Memory Management is broken there (OOMs during weight reload
+with a garbage 2^64-byte accounting value). The sleep/wake code stays in the repo for
+native-Linux boxes; on WSL2 keep `SLEEP_MODE=0`. On 12–16 GB, raise the cap, run SAM2 on
+GPU, consider bf16 (still Dice-gated, Phase 3).
 
 **Deployment shape:** everything runs **inside WSL2 with NVIDIA GPU passthrough**
 (`docker --gpus all`, exactly as troke does). No cross-OS RPC to native Windows; the

@@ -55,13 +55,16 @@ QUANT_ARG=()
 # SLEEP_MODE=1 lets a warm server offload weights to RAM between phases (POST
 # /sleep, /wake_up) instead of restarting — no 2-3 min reload, no co-residency.
 # The sleep endpoints are admin endpoints: only mounted under VLLM_SERVER_DEV_MODE=1,
-# and we bind localhost so they're never exposed. --swap-space 0 frees host RAM
-# for the sleep backup copy.
+# and we bind localhost so they're never exposed.
+# NOTE: sleep mode needs CUDA Virtual Memory Management, which is BROKEN on WSL2
+# (OOMs during weight reload with a garbage 2^64-byte accounting value). Leave
+# SLEEP_MODE=0 on WSL2; the reliable default there is ANOTMED_SEG_DEVICE=cpu.
+# This works on native Linux with proper VMM support.
 SLEEP_MODE="${SLEEP_MODE:-0}"
 SLEEP_ARGS=()
 DEV_ENV=()
 if [ "$SLEEP_MODE" = "1" ]; then
-  SLEEP_ARGS=(--enable-sleep-mode --swap-space 0)
+  SLEEP_ARGS=(--enable-sleep-mode)
   DEV_ENV=(VLLM_SERVER_DEV_MODE=1)
 fi
 
