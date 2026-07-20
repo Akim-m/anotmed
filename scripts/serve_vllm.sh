@@ -52,7 +52,20 @@ fi
 QUANT_ARG=()
 [ -n "$QUANTIZATION" ] && QUANT_ARG=(--quantization "$QUANTIZATION")
 
-echo "Serving $MODEL on :$PORT  (mode=$MODE, quant=${QUANTIZATION:-bf16}, gpu-util=$GPU_MEM_UTIL)"
+# SLEEP_MODE=1 lets a warm server offload weights to RAM between phases (POST
+# /sleep, /wake_up) instead of restarting — no 2-3 min reload, no co-residency.
+# The sleep endpoints are admin endpoints: only mounted under VLLM_SERVER_DEV_MODE=1,
+# and we bind localhost so they're never exposed. --swap-space 0 frees host RAM
+# for the sleep backup copy.
+SLEEP_MODE="${SLEEP_MODE:-0}"
+SLEEP_ARGS=()
+DEV_ENV=()
+if [ "$SLEEP_MODE" = "1" ]; then
+  SLEEP_ARGS=(--enable-sleep-mode --swap-space 0)
+  DEV_ENV=(VLLM_SERVER_DEV_MODE=1)
+fi
+
+echo "Serving $MODEL on :$PORT  (mode=$MODE, quant=${QUANTIZATION:-bf16}, gpu-util=$GPU_MEM_UTIL, sleep=$SLEEP_MODE)"
 [ -n "$SNAP" ] && echo "  cached weights: $SNAP (running HF_HUB_OFFLINE=1)"
 
 COMMON_ARGS=(
@@ -63,14 +76,18 @@ COMMON_ARGS=(
   --limit-mm-per-prompt '{"image":1}'
   "${QUANT_ARG[@]}"
   "${CHAT_ARG[@]}"
+  "${SLEEP_ARGS[@]}"
 )
 
 if [ "$MODE" = "docker" ]; then
-  exec docker run --rm --gpus all -p "${PORT}:8000" --ipc=host \
-    -e "VLLM_USE_FLASHINFER_SAMPLER=0" ${HF_TOKEN:+-e "HF_TOKEN=$HF_TOKEN"} \
+  # bind host publish to localhost when the admin endpoints are enabled
+  PUBLISH="${PORT}:8000"; [ "$SLEEP_MODE" = "1" ] && PUBLISH="127.0.0.1:${PORT}:8000"
+  exec docker run --rm --gpus all -p "$PUBLISH" --ipc=host \
+    -e "VLLM_USE_FLASHINFER_SAMPLER=0" ${SLEEP_MODE:+-e "VLLM_SERVER_DEV_MODE=$([ "$SLEEP_MODE" = 1 ] && echo 1 || echo 0)"} \
+    ${HF_TOKEN:+-e "HF_TOKEN=$HF_TOKEN"} \
     -v "${HF_HOME:-$HOME/.cache/huggingface}:/root/.cache/huggingface" \
     vllm/vllm-openai:latest --model "$MODEL" --port 8000 "${COMMON_ARGS[@]}"
 else
-  exec "${OFFLINE[@]}" VLLM_USE_FLASHINFER_SAMPLER=0 \
-    vllm serve "$MODEL" --port "$PORT" "${COMMON_ARGS[@]}"
+  exec "${OFFLINE[@]}" "${DEV_ENV[@]}" VLLM_USE_FLASHINFER_SAMPLER=0 \
+    vllm serve "$MODEL" --port "$PORT" --host 127.0.0.1 "${COMMON_ARGS[@]}"
 fi

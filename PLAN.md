@@ -94,15 +94,22 @@ owner confirms):
 |---|---|---|
 | MedGemma-4B FP8 weights (vLLM) | ~4.3 GB | `--quantization fp8` on-the-fly, no pre-quantized checkpoint |
 | vLLM KV cache + overhead | ~0.5–1 GB | Single user: `--max-num-seqs 1`, `--max-model-len 2048`, `--enforce-eager`, `--no-enable-prefix-caching`, `--limit-mm-per-prompt '{"image":1}'` |
-| **vLLM cap** | **`--gpu-memory-utilization 0.60`** (≈4.8 GB of 8) | **Deliberately lower than troke's 0.85** — troke owned the whole GPU; anotmed must leave room for SAM2 |
+| **vLLM cap** | **`--gpu-memory-utilization 0.60`** (≈4.8 GB of 8) | ⚠️ **MEASURED WRONG — see correction below.** |
 | SAM2/MedSAM-2 fp16 + activations @1024² | ~1.5–2.5 GB | Loaded lazily by the app after vLLM boots |
 | Headroom | ~0.7–1.2 GB | Display/WSL overhead |
 
-Boot order matters: **vLLM starts first** (it pre-allocates to its cap), then the app's
-lazy SAM2 load claims what remains. If the GPU turns out smaller than 8 GB, the
-fallback is `ANOTMED_SEG_DEVICE=cpu` — SAM2 single-image inference on CPU is seconds,
-fully tolerable inside Phase 4's async job model. On 12–16 GB, raise the vLLM cap and
-consider bf16 (still Dice-gated, Phase 3).
+**Correction (measured 2026-07-20 on the actual RTX 4060):** `--gpu-memory-utilization
+0.60` **fails** — vLLM aborts with "No available memory for the cache blocks" because
+MedGemma-4b FP8 weights (~4.5 GB) + overhead already exceed 0.60×8 GB before any KV
+cache. The real floor is **≥ ~0.70**; MedGemma-only sweet spot is **~0.85** (~7.1 GB
+used). Two models therefore do **not** co-fit comfortably (~6.9 GB, tight). Resolution
+(the memory-optimization plan): the reliable default on 8 GB is a **warm vLLM server
+that never restarts** + **`ANOTMED_SEG_DEVICE=cpu`** (SAM2 on CPU, seconds/image), and
+the app caches the SAM2 image embedding so a study encodes once, not per finding. The
+faster target is **vLLM sleep/wake** (`SLEEP_MODE=1` in `serve_vllm.sh`): between phases,
+`POST /sleep` offloads the weights to RAM (VRAM → ~0) so GPU SAM2 fits, then `POST
+/wake_up` — no 2–3 min reload. On 12–16 GB, raise the cap, run SAM2 on GPU, consider
+bf16 (still Dice-gated, Phase 3).
 
 **Deployment shape:** everything runs **inside WSL2 with NVIDIA GPU passthrough**
 (`docker --gpus all`, exactly as troke does). No cross-OS RPC to native Windows; the

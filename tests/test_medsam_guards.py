@@ -45,9 +45,11 @@ class _FakePredictor:
         self.mask = mask
         self.image = None
         self.box = None
+        self.set_image_calls = 0
 
     def set_image(self, rgb):
         self.image = rgb
+        self.set_image_calls += 1
 
     def predict(self, box=None, multimask_output=False):
         self.box = box
@@ -96,6 +98,28 @@ def test_segment_clamps_box_into_the_image_before_predict():
     seg.segment(np.zeros((64, 64), np.float32), BBox(x=-20, y=-20, w=200, h=200), _meta())
     x0, y0, x1, y1 = seg._predictor.box[0]
     assert x0 >= 0 and y0 >= 0 and x1 <= 64 and y1 <= 64
+
+
+def _img_with_square(r0, c0):
+    a = np.zeros((64, 64), np.float32)
+    a[r0:r0 + 10, c0:c0 + 10] = 300.0
+    return a
+
+
+def test_segment_caches_embedding_across_findings_on_same_image():
+    # The expensive set_image encode must run once, not once per finding.
+    seg = _segmenter(np.zeros((64, 64), dtype=bool))
+    img = _img_with_square(5, 5)
+    seg.segment(img, BBox(x=6, y=6, w=8, h=8), _meta())
+    seg.segment(img, BBox(x=30, y=30, w=8, h=8), _meta())  # same image, different box
+    assert seg._predictor.set_image_calls == 1
+
+
+def test_segment_re_encodes_when_the_image_changes():
+    seg = _segmenter(np.zeros((64, 64), dtype=bool))
+    seg.segment(_img_with_square(5, 5), BBox(x=6, y=6, w=8, h=8), _meta())
+    seg.segment(_img_with_square(40, 40), BBox(x=6, y=6, w=8, h=8), _meta())
+    assert seg._predictor.set_image_calls == 2
 
 
 def test_load_without_checkpoint_raises_runtimeerror_not_importerror():

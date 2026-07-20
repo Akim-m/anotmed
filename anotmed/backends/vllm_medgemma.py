@@ -65,8 +65,9 @@ class _VllmClient:
         self.model = cfg.medgemma_model
         base = cfg.vllm_url.rstrip("/")
         self._chat_url = f"{base}/chat/completions"
-        root = base[:-3] if base.endswith("/v1") else base  # /health lives at server root
-        self._health_url = f"{root}/health"
+        # /health and the sleep/wake admin endpoints live at the server root, not /v1
+        self._root = base[:-3] if base.endswith("/v1") else base
+        self._health_url = f"{self._root}/health"
         self._http = http or httpx.Client(timeout=cfg.vllm_timeout_s)
 
     def chat(self, data_url: str, prompt: str, guided_schema: dict | None = None,
@@ -102,6 +103,21 @@ class _VllmClient:
                 f"vLLM at {self.cfg.vllm_url} not ready (HTTP {resp.status_code}) — "
                 "run scripts/serve_vllm.sh"
             )
+
+    # --- sleep / wake: offload weights to RAM between phases (needs the server
+    # started with SLEEP_MODE=1, i.e. --enable-sleep-mode + VLLM_SERVER_DEV_MODE=1) ---
+    def sleep(self, level: int = 1) -> None:
+        """Offload weights to host RAM (level 1) and free VRAM; keep the server alive."""
+        self._http.post(f"{self._root}/sleep", params={"level": level}).raise_for_status()
+
+    def wake_up(self) -> None:
+        """Reload weights to VRAM. Ensure ~model-sized VRAM is free before calling."""
+        self._http.post(f"{self._root}/wake_up").raise_for_status()
+
+    def is_sleeping(self) -> bool:
+        resp = self._http.get(f"{self._root}/is_sleeping")
+        resp.raise_for_status()
+        return bool(resp.json().get("is_sleeping", False))
 
     def close(self) -> None:
         self._http.close()

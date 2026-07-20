@@ -145,6 +145,49 @@ def test_health_check_passes_when_server_ready():
     client.health()  # must not raise
 
 
+# ---- sleep / wake (VRAM offload between phases) ------------------------------
+
+class _AdminHttp:
+    def __init__(self, sleeping=False):
+        self.sleeping = sleeping
+        self.posts = []
+
+    def post(self, url, json=None, params=None):
+        self.posts.append((url, params))
+        return _Resp()
+
+    def get(self, url):
+        class _R:
+            status_code = 200
+
+            def json(_self):
+                return {"is_sleeping": self.sleeping}
+
+            def raise_for_status(_self):
+                pass
+
+        return _R()
+
+
+def test_sleep_posts_to_server_root_with_level():
+    http = _AdminHttp()
+    _VllmClient(_cfg(), http=http).sleep(level=1)
+    url, params = http.posts[-1]
+    assert url.endswith("/sleep") and "/v1" not in url  # admin endpoint at root
+    assert params == {"level": 1}
+
+
+def test_wake_up_posts_to_wake_endpoint():
+    http = _AdminHttp()
+    _VllmClient(_cfg(), http=http).wake_up()
+    assert http.posts[-1][0].endswith("/wake_up")
+
+
+def test_is_sleeping_reads_the_json_flag():
+    assert _VllmClient(_cfg(), http=_AdminHttp(sleeping=True)).is_sleeping() is True
+    assert _VllmClient(_cfg(), http=_AdminHttp(sleeping=False)).is_sleeping() is False
+
+
 # ---- reporter ---------------------------------------------------------------
 
 def test_reporter_returns_draft_with_verify_disclaimer():

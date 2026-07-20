@@ -71,6 +71,7 @@ class MedSAM2Segmenter:
             predictor, torch_mod = _load(cfg)
         self._predictor = predictor
         self._torch = torch_mod
+        self._img_key = None  # cache the last set_image so a study encodes once, not per finding
         self.name = f"medsam2-segmenter:{cfg.sam_checkpoint.split('/')[-1] or 'sam2'}"
 
     def segment(self, image: np.ndarray, box: BBox, meta: ImageMeta) -> np.ndarray:
@@ -81,7 +82,12 @@ class MedSAM2Segmenter:
         b = box.clamp(w, h)
         xyxy = np.array([b.x, b.y, b.x + b.w, b.y + b.h], dtype=np.float32)
 
-        self._predictor.set_image(rgb)
+        # set_image runs the (expensive) image encoder. Skip it when the same
+        # image is re-segmented for another finding — the dominant SAM2 cost.
+        key = (rgb.shape, hash(rgb.tobytes()))
+        if key != self._img_key:
+            self._predictor.set_image(rgb)
+            self._img_key = key
         with self._torch.inference_mode():
             masks, scores, _ = self._predictor.predict(
                 box=xyxy[None, :], multimask_output=False
