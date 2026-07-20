@@ -109,3 +109,29 @@ def test_dental_profile_raises_max_findings_for_teeth(monkeypatch):
     from anotmed.config import Config
 
     assert Config().max_findings == 40
+
+
+def test_api_ingest_applies_the_active_profile_window(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from anotmed import api
+    from anotmed.config import Config
+    from anotmed.modalities import PROFILES, ModalityProfile
+    from anotmed.store import Store
+    from examples.make_sample_dicom import write_dicom
+
+    monkeypatch.setitem(PROFILES, "testwin",
+                        ModalityProfile(name="testwin", window=WindowSpec(mode="fixed", center=42, width=99)))
+    monkeypatch.setenv("ANOTMED_MODALITY", "testwin")
+    monkeypatch.setattr(api, "_cfg", Config(backend="stub", storage_dir=tmp_path))
+    monkeypatch.setattr(api, "_store", Store(tmp_path))
+    monkeypatch.setattr(api, "_backend", None)
+
+    client = TestClient(api.app)
+    p = tmp_path / "s.dcm"
+    write_dicom(str(p), 128)
+    with open(p, "rb") as f:
+        r = client.post("/api/studies", files={"file": ("s.dcm", f, "application/dicom")})
+    assert r.status_code == 200, r.text
+    meta = api._store.get_study(r.json()["study"]["id"]).meta
+    assert meta.window_center == 42 and meta.window_width == 99  # profile window applied at ingest

@@ -175,8 +175,10 @@ def _print_report(title: str, r: Report) -> None:
 
 def _load_cases(args) -> list[Case]:
     if args.data:
+        from anotmed.modalities import get_profile
+
         from .datasets import load_dir
-        return load_dir(args.data)
+        return load_dir(args.data, window=get_profile(args.modality).window)
     return synthetic_cases(n=args.n)
 
 

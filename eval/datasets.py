@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
+from anotmed.modalities import WindowSpec, resolve_window
 from anotmed.schema import BBox, ImageMeta
 
 # (cy, cx, r) — MUST match examples/make_sample_dicom.py::synth_image so the stub
@@ -128,7 +129,8 @@ def _instances(mask: np.ndarray) -> list[np.ndarray]:
 
 def load_coco_boxes(images_dir: str | Path, coco_json: str | Path,
                     spacing: tuple[float, float] = (1.0, 1.0), modality: str = "OT",
-                    category_field: str = "category_id", limit: int | None = None) -> list[Case]:
+                    category_field: str = "category_id", limit: int | None = None,
+                    window: WindowSpec | None = None) -> list[Case]:
     """Load a COCO detection set (boxes only, no masks) into Cases — e.g. DENTEX.
 
     Each image becomes a Case with `gt_boxes` (from COCO bbox [x,y,w,h], clamped)
@@ -158,17 +160,20 @@ def load_coco_boxes(images_dir: str | Path, coco_json: str | Path,
             labels.append(cat_names.get(ann.get(category_field), "finding"))
         meta = ImageMeta(study_id=str(im["id"]), rows=rows, cols=cols,
                          pixel_spacing_mm=spacing, modality=modality)
+        if window is not None:
+            meta = resolve_window(meta, window)
         cases.append(Case(image=arr, meta=meta, gt_boxes=boxes, gt_masks=[], labels=labels))
     return cases
 
 
 def load_dir(path: str | Path, spacing: tuple[float, float] = (1.0, 1.0),
-             modality: str = "OT") -> list[Case]:
+             modality: str = "OT", window: WindowSpec | None = None) -> list[Case]:
     """Load a labeled set for the validation gate (Phase 3b).
 
     Expects <path>/images/<stem>.{png,npy} paired with <path>/masks/<stem>.{png,npy}
     (0 = background). Each lesion becomes a GT mask + bounding box. `spacing` is the
     (dy, dx) mm pixel spacing applied to every case (PNG/npy carry none of their own).
+    `window` (from the active modality profile) overrides the display window.
     """
     root = Path(path)
     img_dir, mask_dir = root / "images", root / "masks"
@@ -185,6 +190,8 @@ def load_dir(path: str | Path, spacing: tuple[float, float] = (1.0, 1.0),
         insts = _instances(_load_mask(mask_path))
         meta = ImageMeta(study_id=img_path.stem, rows=arr.shape[0], cols=arr.shape[1],
                          pixel_spacing_mm=spacing, modality=modality)
+        if window is not None:
+            meta = resolve_window(meta, window)
         cases.append(Case(image=arr, meta=meta, gt_boxes=[_mask_bbox(m) for m in insts],
                           gt_masks=list(insts), labels=["lesion"] * len(insts)))
     return cases

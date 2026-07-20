@@ -127,6 +127,21 @@ def test_load_coco_boxes_reads_boxes_and_labels_without_masks(tmp_path):
     assert len(by_id["2"].gt_boxes) == 0  # image with no annotations still yields a Case
 
 
+def test_load_coco_boxes_applies_the_window(tmp_path):
+    import json
+
+    from anotmed.modalities import WindowSpec
+    from eval.datasets import load_coco_boxes
+
+    (tmp_path / "images").mkdir()
+    Image.fromarray(np.zeros((8, 8), np.uint8)).save(tmp_path / "images" / "a.png")
+    (tmp_path / "coco.json").write_text(json.dumps(
+        {"images": [{"id": 1, "file_name": "a.png"}], "categories": [], "annotations": []}))
+    cases = load_coco_boxes(tmp_path / "images", tmp_path / "coco.json",
+                            window=WindowSpec(mode="fixed", center=-600, width=1500))
+    assert cases[0].meta.window_center == -600 and cases[0].meta.window_width == 1500
+
+
 def test_load_coco_boxes_honors_limit(tmp_path):
     import json
 

@@ -28,6 +28,7 @@ from .io_dicom import (
     read_dataset,
 )
 from .jobs import JobRegistry
+from .modalities import active_profile, resolve_window
 from .pipeline import Pipeline
 from .schema import BBox, ReviewStatus
 from .store import Store
@@ -92,6 +93,10 @@ async def create_study(file: UploadFile = File(...)):
         raise HTTPException(400, f"Could not read DICOM: {e}")
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+
+    # Apply the active modality's display window (e.g. a lung window on chest CT);
+    # generic/dicom mode leaves the file's own window untouched.
+    meta = resolve_window(meta, active_profile().window)
 
     # The source series is retained (for DICOM-SEG referencing) only after PHI is
     # stripped in place; identifying tags are never written to disk.
