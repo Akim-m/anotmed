@@ -149,6 +149,11 @@ def test_localizer_name_reflects_the_weights():
     assert DetectorLocalizer(_cfg(), predictor=_FakePredictor()).name == "detector:dentex.pt"
 
 
+def test_localizer_name_tags_the_modality_when_set():
+    cfg = Config(backend="detector+medsam", detector_weights="/w/d.pt", modality="dental")
+    assert DetectorLocalizer(cfg, predictor=_FakePredictor()).name == "detector:d.pt[dental]"
+
+
 # ---- build_backend wiring: detector Localizer + MedGemma Reporter -------------
 
 def test_build_backend_routes_detector_with_medgemma_as_reporter(monkeypatch):

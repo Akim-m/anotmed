@@ -71,7 +71,9 @@ class DetectorLocalizer:
     def __init__(self, cfg: Config, predictor=None):
         self.cfg = cfg
         self._predictor = predictor if predictor is not None else _load(cfg)
-        self.name = f"detector:{Path(cfg.detector_weights).name or 'yolo'}"
+        base = f"detector:{Path(cfg.detector_weights).name or 'yolo'}"
+        # tag the modality for the audit trail (Provenance.localizer) when one is active
+        self.name = f"{base}[{cfg.modality}]" if cfg.modality else base
 
     def propose(self, image: np.ndarray, meta: ImageMeta) -> list[Detection]:
         from ..io_dicom import to_display_array

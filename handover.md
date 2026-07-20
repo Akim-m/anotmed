@@ -185,7 +185,9 @@ Working through these in order; commits land per task. Live status:
 - [x] **1. Polish — profile `label_map`** (detector "item" → "tooth"). Done.
 - [x] **2. Polish — windowing-at-ingest**. Done — `resolve_window` at api ingest + `window`
       param on `load_dir`/`load_coco_boxes` (from the profile via `eval.run --modality`).
-- [ ] 3. Polish — `conftest` (`ANOTMED_MODALITY=""`) + `.env.example` knobs + modality in provenance.
+- [x] **3. Polish — conftest + `.env.example` + modality in provenance**. Done — `tests/conftest.py`
+      pins `ANOTMED_MODALITY=""`; `.env.example` gains the detector/modality knobs;
+      `DetectorLocalizer.name` tags the modality (`detector:x.pt[dental]`) for the audit trail.
 - [ ] 4. Docs — refresh README + ARCHITECTURE + artifact (detector/dental/multi-modality/memory rules).
 - [ ] 5. Cleanup — reusable dental scripts; assess deleting legacy `backends/medgemma.py` (vLLM live E2E has passed).
 - [ ] 6. Dental milestone-2 — 4-class pathology detector (disease subset already downloaded); sign a pathology floor.
