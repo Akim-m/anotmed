@@ -19,7 +19,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .backends import build_backend
 from .config import load_config
-from .io_dicom import annotations_to_coco, image_png, load_dicom, mask_overlay_png
+from .io_dicom import (
+    annotations_to_coco,
+    dataset_to_array_meta,
+    deidentify,
+    image_png,
+    mask_overlay_png,
+    read_dataset,
+)
 from .jobs import JobRegistry
 from .pipeline import Pipeline
 from .schema import BBox, ReviewStatus
@@ -79,15 +86,18 @@ async def create_study(file: UploadFile = File(...)):
         tmp.write(data)
         tmp_path = tmp.name
     try:
-        arr, meta = load_dicom(tmp_path)
+        ds = read_dataset(tmp_path)
+        arr, meta = dataset_to_array_meta(ds)
     except Exception as e:
         raise HTTPException(400, f"Could not read DICOM: {e}")
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
-    # Only the pixel array and non-identifying ImageMeta are persisted; PHI tags
-    # are never written to disk.
-    study = _store.create_study(arr, meta, source_name=file.filename or "upload.dcm")
+    # The source series is retained (for DICOM-SEG referencing) only after PHI is
+    # stripped in place; identifying tags are never written to disk.
+    deidentify(ds)
+    study = _store.create_study(arr, meta, source_name=file.filename or "upload.dcm",
+                                source_ds=ds)
 
     if not _cfg.sync:
         # Real inference is slow: persist now, run on the worker, let the client

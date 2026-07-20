@@ -32,17 +32,42 @@ class Store:
 
     # --- studies -----------------------------------------------------------
     def create_study(self, arr: np.ndarray, meta: ImageMeta, source_name: str,
-                     source_path: str | None = None, deidentified: bool = False) -> Study:
+                     source_path: str | None = None, deidentified: bool = False,
+                     source_ds=None) -> Study:
         study_id = uuid.uuid4().hex[:12]
         meta = meta.model_copy(update={"study_id": study_id})
-        study = Study(id=study_id, source_name=source_name, source_path=source_path,
-                      meta=meta, deidentified=deidentified)
         d = self._dir(study_id)
         (d / "masks").mkdir(parents=True, exist_ok=True)
         np.save(d / "image.npy", arr.astype(np.float32))
+
+        # Retain the (already de-identified) source series so DICOM-SEG can
+        # reference the original UIDs. Caller is responsible for scrubbing PHI.
+        if source_ds is not None:
+            source_path = str(self._save_source(d, source_ds))
+            deidentified = True
+
+        study = Study(id=study_id, source_name=source_name, source_path=source_path,
+                      meta=meta, deidentified=deidentified)
         (d / "study.json").write_text(study.model_dump_json(indent=2), encoding="utf-8")
         (d / "annotations.json").write_text("[]", encoding="utf-8")
         return study
+
+    @staticmethod
+    def _save_source(study_dir: Path, ds) -> Path:
+        path = study_dir / "source.dcm"
+        try:
+            ds.save_as(path)  # pydicom infers encoding from file_meta
+        except (AttributeError, ValueError):
+            ds.save_as(path, little_endian=True, implicit_vr=False)  # pydicom >= 3 fallback
+        return path
+
+    def source_dataset(self, study_id: str):
+        """Return the retained source Dataset, or None if this study has none."""
+        path = self._dir(study_id) / "source.dcm"
+        if not path.exists():
+            return None
+        from .io_dicom import read_dataset
+        return read_dataset(path)
 
     def get_study(self, study_id: str) -> Study:
         path = self._dir(study_id) / "study.json"

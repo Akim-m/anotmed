@@ -28,6 +28,13 @@ _PHI_TAGS = [
 ]
 
 
+def read_dataset(path: str | Path):
+    """Read a DICOM file into a pydicom Dataset (kept so callers can retain it)."""
+    import pydicom
+
+    return pydicom.dcmread(str(path))
+
+
 def load_dicom(path: str | Path, study_id: str = "") -> tuple[np.ndarray, ImageMeta]:
     """Read a DICOM file into a 2D float array plus metadata.
 
@@ -35,9 +42,11 @@ def load_dicom(path: str | Path, study_id: str = "") -> tuple[np.ndarray, ImageM
     (e.g. Hounsfield for CT). Missing PixelSpacing is flagged, not guessed —
     measurements would otherwise be silently wrong.
     """
-    import pydicom
+    return dataset_to_array_meta(read_dataset(path), study_id)
 
-    ds = pydicom.dcmread(str(path))
+
+def dataset_to_array_meta(ds, study_id: str = "") -> tuple[np.ndarray, ImageMeta]:
+    """Extract the pixel array (in modality units) and ImageMeta from a Dataset."""
     arr = ds.pixel_array.astype(np.float32)
     if arr.ndim == 3 and arr.shape[-1] in (3, 4):  # RGB(A) — collapse to luminance
         arr = arr[..., :3].mean(axis=-1)
