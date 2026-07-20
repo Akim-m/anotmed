@@ -91,10 +91,13 @@ that lead into each are built and CPU-tested; these are the live/decision steps.
    *segmenter*: MedSAM-2 on real weights coexisting with vLLM in the VRAM budget.
 2. **Point MedSAM-2 at real weights (P2).** Set `ANOTMED_SAM_CHECKPOINT`/`_CONFIG`
    (checkpoint choice is modality-adjacent — see §4). Then delete `medgemma.py`.
-3. **Validate on real data (P3b) — the safety requirement.** Wire
-   `eval/datasets.load_dir()` to a labeled held-out set (30–50 curated cases is a
-   meaningful floor check) and run `python -m eval.run --tier absolute`. Sign the
-   floors in `eval/floors.yaml` first.
+3. **Validate on real data (P3b) — the safety requirement.** `eval/datasets.load_dir()`
+   is now **implemented + tested** (put images in `<dir>/images/<stem>.{png,npy}` and
+   masks in `<dir>/masks/<stem>.{png,npy}`; binary masks split into per-lesion
+   components, label maps use per-value instances). Verified end-to-end on the stub:
+   `python -m eval.run --tier absolute --data <dir>` scores and gates. **All that's
+   left is your labeled held-out set** (30–50 curated cases is a meaningful floor
+   check) + real models; sign the floors in `eval/floors.yaml` first.
 4. **Pick the modality (P6).** Drives the checkpoint, windowing, validation set,
    and whether 3D volumes are needed.
 5. **(Conditional) QLoRA finetune (P7)** — only if P3b shows a Dice gap.

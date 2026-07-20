@@ -73,9 +73,82 @@ def synthetic_cases(n: int = 6, size: int = 256) -> list[Case]:
     return cases
 
 
-def load_dir(path: str | Path) -> list[Case]:
-    """Load a real labeled set (Phase 3b). Placeholder until the owner wires a set."""
-    raise NotImplementedError(
-        "Real labeled-set loading is Phase 3b — needs the owner's modality + data layout. "
-        "See PLAN.md §4. Use synthetic_cases() for the P3a machinery check."
-    )
+def _load_gray(path: Path) -> np.ndarray:
+    if path.suffix.lower() == ".npy":
+        return np.load(path)
+    from PIL import Image
+    return np.asarray(Image.open(path))
+
+
+def _load_image(path: Path) -> np.ndarray:
+    arr = _load_gray(path)
+    if arr.ndim == 3:  # RGB(A) -> luminance
+        arr = arr[..., :3].mean(axis=-1)
+    return arr.astype(np.float32)
+
+
+def _load_mask(path: Path) -> np.ndarray:
+    arr = _load_gray(path)
+    if arr.ndim == 3:
+        arr = arr[..., 0]
+    return arr.astype(np.int32)
+
+
+def _components(binary: np.ndarray) -> list[np.ndarray]:
+    """Split a boolean mask into 4-connected components (pure numpy/Python)."""
+    h, w = binary.shape
+    seen = np.zeros((h, w), dtype=bool)
+    out: list[np.ndarray] = []
+    for sr in range(h):
+        for sc in range(w):
+            if not binary[sr, sc] or seen[sr, sc]:
+                continue
+            comp = np.zeros((h, w), dtype=bool)
+            stack = [(sr, sc)]
+            seen[sr, sc] = True
+            while stack:
+                r, c = stack.pop()
+                comp[r, c] = True
+                for nr, nc in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+                    if 0 <= nr < h and 0 <= nc < w and binary[nr, nc] and not seen[nr, nc]:
+                        seen[nr, nc] = True
+                        stack.append((nr, nc))
+            out.append(comp)
+    return out
+
+
+def _instances(mask: np.ndarray) -> list[np.ndarray]:
+    """One boolean mask per lesion. Label map -> per-value; binary -> per-component."""
+    if int(mask.max()) <= 0:
+        return []
+    if int(mask.max()) > 1:  # explicit instance ids
+        return [(mask == v) for v in sorted(np.unique(mask)) if v != 0]
+    return _components(mask > 0)  # binary -> connected regions
+
+
+def load_dir(path: str | Path, spacing: tuple[float, float] = (1.0, 1.0),
+             modality: str = "OT") -> list[Case]:
+    """Load a labeled set for the validation gate (Phase 3b).
+
+    Expects <path>/images/<stem>.{png,npy} paired with <path>/masks/<stem>.{png,npy}
+    (0 = background). Each lesion becomes a GT mask + bounding box. `spacing` is the
+    (dy, dx) mm pixel spacing applied to every case (PNG/npy carry none of their own).
+    """
+    root = Path(path)
+    img_dir, mask_dir = root / "images", root / "masks"
+    cases: list[Case] = []
+    for img_path in sorted(img_dir.glob("*")):
+        if img_path.suffix.lower() not in (".png", ".npy", ".jpg", ".jpeg"):
+            continue
+        mask_path = next((mask_dir / f"{img_path.stem}{ext}"
+                          for ext in (".png", ".npy")
+                          if (mask_dir / f"{img_path.stem}{ext}").exists()), None)
+        if mask_path is None:
+            raise FileNotFoundError(f"no mask for image {img_path.stem!r} in {mask_dir}")
+        arr = _load_image(img_path)
+        insts = _instances(_load_mask(mask_path))
+        meta = ImageMeta(study_id=img_path.stem, rows=arr.shape[0], cols=arr.shape[1],
+                         pixel_spacing_mm=spacing, modality=modality)
+        cases.append(Case(image=arr, meta=meta, gt_boxes=[_mask_bbox(m) for m in insts],
+                          gt_masks=list(insts), labels=["lesion"] * len(insts)))
+    return cases
