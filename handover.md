@@ -33,6 +33,51 @@ written-to-spec, not yet run against weights; that is where the work resumes.
 | DICOM-SEG export | **documented stub** — raises with root cause; needs source series wired |
 | 3D volumes | not implemented — per-slice scaffolding only (`slice_index` exists) |
 
+## Session log — 2026-07-20 (Phase 1: MedGemma behind vLLM, GPU-free)
+
+Built the whole vLLM MedGemma path and its tests without a GPU — the app is now
+a thin httpx client to a separate vLLM server, so the entire backend is proven by
+mocking one request. Landed in four green sub-commits (suite 30 → 51):
+
+- **`backends/schemas.py`** — self-contained guided-JSON schema (`box_2d` = 4 ints
+  0-1000, capped at `max_findings`) for vLLM's grammar-constrained decoder, plus
+  `FindingBox`/`FindingList` to validate responses. Confidence is advisory only.
+- **`parsing.py`** — extracted `to_pixel_bbox` so the guided path and the P0
+  free-text fallback share one clamp/scale and can't drift.
+- **`backends/vllm_medgemma.py`** — `_VllmClient` (injectable http, `temperature=0`,
+  data-URL image, `guided_json`, actionable `health()`), `VllmLocalizer`
+  (guided-JSON → validated Detections; prose → `parsing.py` fallback; garbage → []
+  never raises), `VllmReporter` (crop + label → draft + verify disclaimer).
+- **Wiring** — `build_backend` routes `ANOTMED_BACKEND=vllm` and **health-gates the
+  server before loading the segmenter** (down server fails fast, never imports
+  torch). Uniform `{error, message}` API envelope. `httpx` promoted to a runtime
+  dep. `scripts/serve_vllm.sh` launches vLLM with the §2.1 two-model VRAM budget.
+
+Config knobs added: `ANOTMED_VLLM_URL`, `ANOTMED_VLLM_TIMEOUT_S`,
+`ANOTMED_GUIDED_JSON`. **Live GPU run is owner-gated (Phase 2)**; the deferred
+deletion of `backends/medgemma.py` waits until that live E2E passes.
+
+## Session log — 2026-07-20 (Phase 0: adapter hardening, WSL/CPU)
+
+Hardened the two real-model adapters against messy output — TDD, tests written
+and watched fail first. Six latent bugs that would only bite once real weights
+run, now fixed and CPU-covered (19 new tests; suite 11 → 30, all green):
+
+- **New `backends/parsing.py`** (torch-free, unit-tested) owns MedGemma output
+  parsing: string-aware array extraction (`json.raw_decode`, so a `]` inside a
+  label no longer truncates), per-element `try/except` (one bad coord drops one
+  box, not the study), coord clamp `0-1000` → `BBox.clamp`, **default score 1.0**
+  (a `0.0` default was filtered out the instant `ANOTMED_MIN_SCORE>0` — see
+  `pipeline.py:87`), and a "never raises" guarantee. `medgemma.py` now delegates
+  to it; its buggy `_extract_json_array`/`_parse_boxes` are gone.
+- **`medsam.py`**: config guard now runs *before* the `torch`/`sam2` import (a
+  missing checkpoint yields an actionable `RuntimeError`, not `ModuleNotFoundError`
+  from an uninstalled torch), and `_conform_mask` collapses leading dims + does a
+  numpy nearest-neighbor resize to the image grid + a shape assert.
+
+Pushed to `main` (`dd7c199`). Backlog #2 is partly addressed: the parser is now
+robust; the remaining half is a **1-image verification against real weights**.
+
 ## Session log — 2026-07-19 (first execution, WSL/CPU)
 
 First time the code was ever run. Set up a dedicated `.venv`, `pip install -e
