@@ -222,21 +222,5 @@ def export_coco(study: Study, annotations: list[Annotation],
     return path
 
 
-def export_dicom_seg(arr: np.ndarray, meta: ImageMeta, annotations: list[Annotation],
-                     masks: dict[str, np.ndarray], out_path: str | Path) -> Path:
-    """Export accepted masks as a DICOM-SEG object. Requires `highdicom`.
-
-    Raises a clear error if highdicom is not installed rather than silently
-    producing a lesser format.
-    """
-    try:
-        import highdicom  # noqa: F401
-    except ImportError as e:  # pragma: no cover - optional dependency
-        raise RuntimeError(
-            "DICOM-SEG export needs `highdicom` (pip install anotmed[seg]). "
-            "COCO export is available without it."
-        ) from e
-    raise NotImplementedError(
-        "DICOM-SEG export requires the source DICOM dataset (not just pixels). "
-        "Wire this to your source series in WSL; highdicom is installed."
-    )
+# DICOM-SEG export now lives in anotmed/export_seg.py (it needs the retained
+# source Dataset, not just pixels). The former stub here was removed in Phase 5.
