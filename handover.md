@@ -40,6 +40,39 @@ safety gate on a labeled set in your modality, and decide the modality. See the
 | DICOM-SEG export | **complete** — highdicom, accepted-only, references the de-identified source |
 | 3D volumes | not implemented — `slice_index` plumbed; gated on the modality decision (P6) |
 
+## Session log — 2026-07-22 (milestone-2 pathology detector VALIDATED + durability fix)
+
+Closed out milestone-2. The 4-class pathology YOLOv8n (trained 2026-07-20, early-stopped
+epoch 26/80) had its weights safe at `/root/dental_weights/dentex_pathology/` but its DENTEX
+data lived in a **session scratchpad that was garbage-collected** — so the held-out eval and
+E2E could not run. Re-acquired and validated:
+
+- **Re-acquired the DENTEX disease subset to a DURABLE path** (`/root/dental_data/dentex/`,
+  mirrors how weights live at `/root/dental_weights/`). Downloaded ONLY the
+  `quadrant-enumeration-disease` subset (705 imgs + 1 json, ~2.9 GB) out of the monolithic
+  10.9 GB `training_data.zip` via **HTTP range requests** (8 parallel connections, ~4 min),
+  not the full download. DENTEX is public/un-gated on HF (`ibrahimhamamci/DENTEX`).
+- **Durability fix:** `scripts/prep_dentex.py` no longer hardcodes a session-scratchpad path
+  (which broke reproducibility) — it reads `DENTEX_ROOT` / `PREP_OUT`, both defaulting to the
+  durable `/root/dental_data`. Prep reproduced the **exact 493/106/106 split** (deterministic
+  `Random(0)`), so the held-out 106 are provably the images `best.pt` never trained on.
+- **Held-out eval (the milestone-2 gate):** `MODALITY=dental-path scripts/eval_detector.py`
+  over 106 imgs / 525 GT boxes → **recall@0.3 0.641, @0.5 0.630, precision 0.476 — PASS**
+  (floor 0.50). recall@0.5 ≈ recall@0.3 ⇒ tight boxes when found; precision ~0.48 is the right
+  trade-off for an annotation accelerator (a false positive is one reject-click; a false
+  negative is a missed disease). Class imbalance (Caries 2189 vs Periapical Lesion 158) is why
+  4-class mAP50 sat at ~0.52 while class-agnostic localization recall is higher.
+- **Full E2E** on train_265.png (all 4 classes present), sequential/memory-safe: detector
+  proposed 7 pathology boxes → SAM2 masked all 7 → measured → MedGemma drafted reports → human
+  gate accepted 3/7 → accepted-only COCO/RLE export (3 masks). GPU torn down between phases
+  (detector+SAM2 ~2 GiB → freed → vLLM @ 0.80 util → freed → 0 MiB). NOTE: vLLM *weight-load*
+  transiently peaked ~7926 MiB (~262 MiB free); pin `GPU_MEM_UTIL=0.72` to keep ≥1 GiB VRAM
+  free even during the load spike. Measurements are in nominal mm (DENTEX PNGs carry no pixel
+  spacing → spacing (1,1)); a real DICOM panoramic with ~0.1 mm/px yields realistic values.
+
+Suite: 133 green. Milestone-2 complete; next is the deferred milestone-3 (VinDr-CXR chest
+X-ray per the shortlist) or a real-mm DICOM panoramic to exercise the measurement path.
+
 ## Session log — 2026-07-20 (MedSAM-2 segmenter LIVE + real memory findings)
 
 Brought the segmenter up on real weights. Installed `sam2` into the vLLM venv
@@ -195,10 +228,15 @@ Working through these in order; commits land per task. Live status:
       localization eval; smoke-tested → dental 0.994). Assessed legacy `backends/medgemma.py`:
       **kept** as an optional in-process fallback (doesn't fit 8 GB bf16, but valid on larger
       GPUs; parsing shared via `parsing.py`) — README status clarified, not deleted.
-- [~] **6. Dental milestone-2 — pathology detector** (in progress). Setup done: prep generalized,
-      `dental-path` profile + provisional floor (0.50). Training a 4-class YOLOv8n on the DENTEX
-      disease subset (493/106/106; Impacted/Caries/Periapical Lesion/Deep Caries). Eval next via
-      `MODALITY=dental-path scripts/eval_detector.py` on the 106 held-out.
+- [x] **6. Dental milestone-2 — pathology detector.** DONE 2026-07-22. 4-class YOLOv8n on the
+      DENTEX disease subset (493/106/106; Impacted/Caries/Periapical Lesion/Deep Caries), early-
+      stopped epoch 26/80. Held-out eval (106 imgs, 525 GT boxes) via `MODALITY=dental-path
+      scripts/eval_detector.py`: **recall@0.3 = 0.641, @0.5 0.630, precision 0.476 — PASSES the
+      0.50 dental-path floor** (Fable predicted 0.50-0.70). Full E2E verified on a held-out
+      panoramic (train_265.png): detect(pathology 7 boxes) → SAM2 (7 masks) → measure → MedGemma
+      report → gate (accept 3/7) → accepted-only RLE export, sequential/memory-safe (≥1 GiB VRAM
+      free at steady state, models never co-resident). Weights: `/root/dental_weights/
+      dentex_pathology/weights/best.pt` (research-only — DENTEX NC + ultralytics AGPL).
 - [ ] 7. Next modality — VinDr-CXR chest X-ray (MONOCHROME1 fix + `chest-xr` profile + loader + train + gate).
 
 Owner-gated (I can't): sign clinical floors; regulatory path; live PACS-viewer SEG check;

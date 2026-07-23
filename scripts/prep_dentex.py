@@ -9,23 +9,29 @@ Deterministic 70/15/15 split; images symlinked (large panoramics); the held-out
 split is written as a COCO json (its `category_id` set to the chosen field) so the
 eval loads it via eval.datasets.load_coco_boxes.
 
-env: SUBSET, JSON, CATFIELD ("" = single class), NAMES (comma-sep), OUT_NAME,
-     HELDOUT_JSON. DENTEX is CC-BY-NC-SA-4.0; cite Hamamci et al., arXiv:2305.19112.
+env: DENTEX_ROOT (raw data root), PREP_OUT (output root), SUBSET, JSON,
+     CATFIELD ("" = single class), NAMES (comma-sep), OUT_NAME, HELDOUT_JSON.
+     DENTEX is CC-BY-NC-SA-4.0; cite Hamamci et al., arXiv:2305.19112.
+
+Paths default to /root/dental_data (durable, like /root/dental_weights) — NEVER a
+session scratchpad, which is garbage-collected when the session ends and would make
+every trained run non-reproducible.
 """
 import json
 import os
 import random
 from pathlib import Path
 
-SCR = Path("/tmp/claude-0/-home-akim-Coding-anotmed/b81e55b1-b9d2-4d01-a250-cb39c46af05b/scratchpad")
+DATA_ROOT = Path(os.environ.get("DENTEX_ROOT", "/root/dental_data/dentex"))  # raw DENTEX subset
+OUT_ROOT = Path(os.environ.get("PREP_OUT", "/root/dental_data"))             # YOLO layout + held-out json
 SUBSET = os.environ.get("SUBSET", "quadrant_enumeration")
 JSON = os.environ.get("JSON", "train_quadrant_enumeration.json")
 CATFIELD = os.environ.get("CATFIELD", "")                       # "" -> single class 0
 NAMES = os.environ.get("NAMES", "tooth").split(",")
-OUT = SCR / os.environ.get("OUT_NAME", "dentex_yolo")
-HELDOUT = SCR / os.environ.get("HELDOUT_JSON", "dentex_heldout.json")
+OUT = OUT_ROOT / os.environ.get("OUT_NAME", "dentex_yolo")
+HELDOUT = OUT_ROOT / os.environ.get("HELDOUT_JSON", "dentex_heldout.json")
 
-BASE = SCR / "dentex/training_data" / SUBSET
+BASE = DATA_ROOT / "training_data" / SUBSET
 XRAYS = BASE / "xrays"
 COCO = json.loads((BASE / JSON).read_text())
 
